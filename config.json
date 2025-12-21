@@ -1,0 +1,25 @@
+{
+    "find_match_button_pos": [
+        100,
+        200
+    ],
+    "in_queue_pixel_pos": [
+        105,
+        250
+    ],
+    "in_queue_pixel_color": [
+        20,
+        25,
+        30
+    ],
+    "accept_match_pixel_pos": [
+        500,
+        400
+    ],
+    "accept_match_pixel_color": [
+        10,
+        200,
+        50
+    ],
+    "reset_time": 120
+}

@@ -1,0 +1,29 @@
+{
+    "find_match_button_pos": [
+        852,
+        939
+    ],
+    "cancel_button_pos": [
+        1704,
+        214
+    ],
+    "in_queue_pixel_pos": [
+        673,
+        954
+    ],
+    "in_queue_pixel_color": [
+        91,
+        90,
+        86
+    ],
+    "accept_match_pixel_pos": [
+        1049,
+        793
+    ],
+    "accept_match_pixel_color": [
+        5,
+        134,
+        152
+    ],
+    "reset_time": 5
+}
