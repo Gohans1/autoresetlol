@@ -6,6 +6,7 @@ from config import config_manager
 import time
 from bot import AntiFateBot
 import threading
+from dimmer import Dimmer
 
 # Set Theme
 ctk.set_appearance_mode("Dark")
@@ -18,7 +19,7 @@ class AntiFateApp(ctk.CTk):
 
         # Window Setup
         self.title("Anti-Fate Engine")
-        self.geometry("340x300")
+        self.geometry("340x400")  # Increased height for new controls
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
@@ -27,14 +28,18 @@ class AntiFateApp(ctk.CTk):
         # Let's keep standard dark for better consistency with title bar.
 
         self.bot = None
+        self.dimmer = Dimmer()
 
         self.create_widgets()
         self.load_settings()
 
+        # Handle Window Close to reset gamma
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
     def create_widgets(self):
         # Main Layout: Single column, centered with padding
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure((0, 1, 2, 3, 4), weight=1)
+        self.grid_rowconfigure((0, 1, 2, 3, 4, 5, 6), weight=1)
 
         # 1. Header / Status
         self.status_label = ctk.CTkLabel(
@@ -43,31 +48,49 @@ class AntiFateApp(ctk.CTk):
             font=("Inter", 14, "bold"),
             text_color="#a1a1aa",  # Zinc-400
         )
-        self.status_label.pack(pady=(25, 15))
+        self.status_label.pack(pady=(25, 10))
 
-        # 2. Reset Time Input
-        input_frame = ctk.CTkFrame(self, fg_color="transparent")
-        input_frame.pack(pady=10)
+        # 2. Controls Frame (Timer + Pin)
+        controls_frame = ctk.CTkFrame(self, fg_color="transparent")
+        controls_frame.pack(pady=5)
 
+        # Reset Timer
         ctk.CTkLabel(
-            input_frame,
-            text="Reset Timer (s):",
+            controls_frame,
+            text="Timer (s):",
             font=("Inter", 12),
             text_color="#e4e4e7",  # Zinc-200
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 5))
 
         self.reset_time_var = tk.StringVar()
         self.reset_time_entry = ctk.CTkEntry(
-            input_frame,
+            controls_frame,
             textvariable=self.reset_time_var,
-            width=60,
+            width=50,
             font=("Inter", 12),
             fg_color="#18181b",  # Zinc-900
             border_color="#3f3f46",  # Zinc-700
             text_color="#fafafa",  # Zinc-50
             justify="center",
         )
-        self.reset_time_entry.pack(side="left")
+        self.reset_time_entry.pack(side="left", padx=(0, 15))
+
+        # Pin Toggle
+        self.pin_var = ctk.BooleanVar(value=True)
+        self.pin_switch = ctk.CTkSwitch(
+            controls_frame,
+            text="Pin",
+            font=("Inter", 12),
+            variable=self.pin_var,
+            command=self.toggle_pin,
+            progress_color="#34d399",  # Emerald-400
+            fg_color="#3f3f46",  # Zinc-700
+            button_color="#f4f4f5",  # Zinc-100
+            button_hover_color="#e4e4e7",
+            text_color="#e4e4e7",
+            width=50,
+        )
+        self.pin_switch.pack(side="left")
 
         # 3. Action Buttons (Start / Stop)
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -121,10 +144,35 @@ class AntiFateApp(ctk.CTk):
         )
         self.calib_btn.pack(pady=10)
 
-        # 5. Footer
+        # 5. Ghost Dimmer Slider
+        dimmer_frame = ctk.CTkFrame(self, fg_color="transparent")
+        dimmer_frame.pack(pady=10, fill="x", padx=40)
+
+        ctk.CTkLabel(
+            dimmer_frame,
+            text="Ghost Dimmer",
+            font=("Inter", 12, "bold"),
+            text_color="#a1a1aa",
+        ).pack(anchor="w")
+
+        self.dimmer_slider = ctk.CTkSlider(
+            dimmer_frame,
+            from_=20,
+            to=100,
+            number_of_steps=80,
+            command=self.change_brightness,
+            fg_color="#3f3f46",  # Zinc-700
+            progress_color="#e4e4e7",  # Zinc-200
+            button_color="#fafafa",  # Zinc-50
+            button_hover_color="#d4d4d8",
+        )
+        self.dimmer_slider.set(100)
+        self.dimmer_slider.pack(fill="x", pady=5)
+
+        # 6. Footer
         ctk.CTkLabel(
             self,
-            text="v6.0 • Anti-Autofill",
+            text="v7.1 • Anti-Autofill",
             font=("Inter", 10),
             text_color="#52525b",  # Zinc-600
         ).pack(side="bottom", pady=10)
@@ -152,6 +200,13 @@ class AntiFateApp(ctk.CTk):
 
         final_color = color_map.get(str(color).lower(), "#a1a1aa")
         self.status_label.configure(text=text, text_color=final_color)
+
+    def toggle_pin(self):
+        is_pinned = self.pin_var.get()
+        self.attributes("-topmost", is_pinned)
+
+    def change_brightness(self, value):
+        self.dimmer.set_brightness(value)
 
     def on_bot_stop(self, status, color):
         self.update_status(status, color)
@@ -248,3 +303,12 @@ class AntiFateApp(ctk.CTk):
 
         # Run calibration in a separate thread to avoid freezing the "Waiting" UI update
         threading.Thread(target=_calib_task, daemon=True).start()
+
+    def on_closing(self):
+        """Cleanup before closing"""
+        if self.bot:
+            self.bot.stop()
+        if self.dimmer:
+            self.dimmer.reset()  # Critical: restore brightness
+            self.dimmer.close()
+        self.destroy()
