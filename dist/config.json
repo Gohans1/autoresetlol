@@ -1,7 +1,7 @@
 {
     "find_match_button_pos": [
-        852,
-        939
+        673,
+        954
     ],
     "cancel_button_pos": [
         1704,
@@ -25,5 +25,21 @@
         134,
         152
     ],
-    "reset_time": 5
+    "champ_select_pixel_pos": [
+        1545,
+        953
+    ],
+    "champ_select_pixel_color": [
+        154,
+        149,
+        135
+    ],
+    "minimize_btn_pos": [
+        1621,
+        108
+    ],
+    "reset_time": 90,
+    "dimmer_value": 80,
+    "dimmer_enabled": true,
+    "reset_sound_enabled": true
 }

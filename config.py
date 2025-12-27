@@ -1,62 +1,103 @@
 import json
 import os
+import logging
+from typing import List, Dict, Any, Optional, Union
+from dataclasses import dataclass, asdict, field
+from constants import DefaultConfig
 
-CONFIG_FILE = "config.json"
+logger = logging.getLogger("AutoResetLoL")
 
-DEFAULT_CONFIG = {
-    "find_match_button_pos": [100, 200],
-    "cancel_button_pos": [100, 200],
-    "in_queue_pixel_pos": [105, 250],
-    "in_queue_pixel_color": [20, 25, 30],
-    "accept_match_pixel_pos": [500, 400],
-    "accept_match_pixel_color": [10, 200, 50],
-    "reset_time": 120,
-}
+
+@dataclass
+class BotConfig:
+    find_match_button_pos: List[int] = field(
+        default_factory=lambda: DefaultConfig.FIND_MATCH_POS
+    )
+    cancel_button_pos: List[int] = field(
+        default_factory=lambda: DefaultConfig.CANCEL_POS
+    )
+    in_queue_pixel_pos: List[int] = field(
+        default_factory=lambda: DefaultConfig.QUEUE_PIXEL_POS
+    )
+    in_queue_pixel_color: List[int] = field(
+        default_factory=lambda: DefaultConfig.QUEUE_PIXEL_COLOR
+    )
+    accept_match_pixel_pos: List[int] = field(
+        default_factory=lambda: DefaultConfig.ACCEPT_POS
+    )
+    accept_match_pixel_color: List[int] = field(
+        default_factory=lambda: DefaultConfig.ACCEPT_COLOR
+    )
+    champ_select_pixel_pos: List[int] = field(default_factory=lambda: [0, 0])
+    champ_select_pixel_color: List[int] = field(default_factory=lambda: [0, 0, 0])
+    minimize_btn_pos: List[int] = field(
+        default_factory=lambda: DefaultConfig.MINIMIZE_POS
+    )
+    reset_time: int = DefaultConfig.RESET_TIME
+    dimmer_value: int = DefaultConfig.DIMMER_VALUE
+    dimmer_enabled: bool = DefaultConfig.DIMMER_ENABLED
+    reset_sound_enabled: bool = DefaultConfig.RESET_SOUND_ENABLED
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "BotConfig":
+        """
+        Creates a BotConfig instance from a dictionary, filtering unknown keys
+        and ensuring types where possible (basic validation).
+        """
+        valid_keys = cls.__dataclass_fields__.keys()
+        filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered_data)
 
 
 class ConfigManager:
-    def __init__(self, config_file=CONFIG_FILE):
+    def __init__(self, config_file: str = "config.json"):
         self.config_file = config_file
-        self.config = DEFAULT_CONFIG.copy()
+        self.config: BotConfig = BotConfig()
         self.load_config()
 
-    def load_config(self):
+    def load_config(self) -> None:
         """Loads configuration from the JSON file. Creates it if it doesn't exist."""
         if not os.path.exists(self.config_file):
-            print(f"Config file not found. Creating default {self.config_file}...")
+            logger.info(
+                f"Config file not found. Creating default {self.config_file}..."
+            )
             self.save_config()
         else:
             try:
                 with open(self.config_file, "r") as f:
-                    loaded_config = json.load(f)
-                    # Update current config with loaded values, keeping defaults for missing keys
-                    self.config.update(loaded_config)
-                print(f"Config loaded from {self.config_file}")
+                    data = json.load(f)
+                    self.config = BotConfig.from_dict(data)
+                logger.info(f"Config loaded from {self.config_file}")
             except json.JSONDecodeError:
-                print(f"Error decoding {self.config_file}. Using default config.")
-                # Optionally backup the corrupted file and recreate default?
-                # For now, just using defaults in memory is safer than overwriting.
+                logger.error(
+                    f"Error decoding {self.config_file}. Using default config."
+                )
             except Exception as e:
-                print(f"Error loading config: {e}")
+                logger.error(f"Error loading config: {e}")
 
-    def save_config(self):
+    def save_config(self) -> None:
         """Saves the current configuration to the JSON file."""
         try:
             with open(self.config_file, "w") as f:
-                json.dump(self.config, f, indent=4)
-            print(f"Config saved to {self.config_file}")
+                json.dump(asdict(self.config), f, indent=4)
+            logger.info(f"Config saved to {self.config_file}")
         except Exception as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"Error saving config: {e}")
 
-    def get(self, key):
+    def get(self, key: str) -> Any:
         """Retrieves a configuration value."""
-        return self.config.get(key, DEFAULT_CONFIG.get(key))
+        if hasattr(self.config, key):
+            return getattr(self.config, key)
+        return None
 
-    def set(self, key, value):
+    def set(self, key: str, value: Any) -> None:
         """Sets a configuration value and saves to file."""
-        self.config[key] = value
-        self.save_config()
+        if hasattr(self.config, key):
+            setattr(self.config, key, value)
+            self.save_config()
+        else:
+            logger.warning(f"Attempted to set unknown config key: {key}")
 
 
-# Global instance for easy access
+# Global instance
 config_manager = ConfigManager()

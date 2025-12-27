@@ -1,16 +1,20 @@
-import customtkinter as ctk
+import customtkinter as ctk  # type: ignore
 import tkinter as tk
 from tkinter import messagebox
 import pyautogui
-from config import config_manager
 import time
-from bot import AntiFateBot
 import threading
-from dimmer import Dimmer
+from typing import Optional, Dict
+
+from config import config_manager
+from bot import AntiFateBot
+from utils.windows import GammaController
+from constants import AppConfig, Colors, UIStatus
+from logger import logger
 
 # Set Theme
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")  # We will override colors manually for Shadcn look
+ctk.set_appearance_mode(AppConfig.THEME_MODE)
+ctk.set_default_color_theme(AppConfig.THEME_COLOR)
 
 
 class AntiFateApp(ctk.CTk):
@@ -18,17 +22,18 @@ class AntiFateApp(ctk.CTk):
         super().__init__()
 
         # Window Setup
-        self.title("Anti-Fate Engine")
-        self.geometry("340x400")  # Increased height for new controls
+        self.title(AppConfig.APP_NAME)
+        self.geometry(AppConfig.GEOMETRY)
         self.resizable(False, False)
-        self.attributes("-topmost", True)
 
-        # Shadcn Zinc-950 background (Approximate, CTk uses its own dark gray by default)
-        # We can try to set it, but usually standard dark is fine.
-        # Let's keep standard dark for better consistency with title bar.
+        self.bot: Optional[AntiFateBot] = None
+        self.dimmer = GammaController()
 
-        self.bot = None
-        self.dimmer = Dimmer()
+        # Variables
+        self.reset_time_var = tk.StringVar()
+        self.reset_time_var.trace_add("write", self._on_time_changed)
+        self.dimmer_enabled_var = ctk.BooleanVar(value=True)
+        self.reset_sound_enabled_var = ctk.BooleanVar(value=True)
 
         self.create_widgets()
         self.load_settings()
@@ -36,7 +41,7 @@ class AntiFateApp(ctk.CTk):
         # Handle Window Close to reset gamma
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    def create_widgets(self):
+    def create_widgets(self) -> None:
         # Main Layout: Single column, centered with padding
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure((0, 1, 2, 3, 4, 5, 6), weight=1)
@@ -44,9 +49,9 @@ class AntiFateApp(ctk.CTk):
         # 1. Header / Status
         self.status_label = ctk.CTkLabel(
             self,
-            text="Status: Ready",
+            text=UIStatus.READY,
             font=("Inter", 14, "bold"),
-            text_color="#a1a1aa",  # Zinc-400
+            text_color=Colors.ZINC_400,
         )
         self.status_label.pack(pady=(25, 10))
 
@@ -59,164 +64,223 @@ class AntiFateApp(ctk.CTk):
             controls_frame,
             text="Timer (s):",
             font=("Inter", 12),
-            text_color="#e4e4e7",  # Zinc-200
+            text_color=Colors.ZINC_200,
         ).pack(side="left", padx=(0, 5))
 
-        self.reset_time_var = tk.StringVar()
         self.reset_time_entry = ctk.CTkEntry(
             controls_frame,
             textvariable=self.reset_time_var,
             width=50,
             font=("Inter", 12),
-            fg_color="#18181b",  # Zinc-900
-            border_color="#3f3f46",  # Zinc-700
-            text_color="#fafafa",  # Zinc-50
+            fg_color=Colors.ZINC_900,
+            border_color=Colors.ZINC_700,
+            text_color=Colors.ZINC_50,
             justify="center",
         )
         self.reset_time_entry.pack(side="left", padx=(0, 15))
-
-        # Pin Toggle
-        self.pin_var = ctk.BooleanVar(value=True)
-        self.pin_switch = ctk.CTkSwitch(
-            controls_frame,
-            text="Pin",
-            font=("Inter", 12),
-            variable=self.pin_var,
-            command=self.toggle_pin,
-            progress_color="#34d399",  # Emerald-400
-            fg_color="#3f3f46",  # Zinc-700
-            button_color="#f4f4f5",  # Zinc-100
-            button_hover_color="#e4e4e7",
-            text_color="#e4e4e7",
-            width=50,
-        )
-        self.pin_switch.pack(side="left")
 
         # 3. Action Buttons (Start / Stop)
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=15)
 
-        # Primary Button (Start) - White bg, Black text
+        # Primary Button (Start)
         self.start_btn = ctk.CTkButton(
             btn_frame,
             text="START",
             font=("Inter", 12, "bold"),
             width=100,
             height=32,
-            fg_color="#fafafa",  # Zinc-50
-            text_color="#18181b",  # Zinc-900
-            hover_color="#d4d4d8",  # Zinc-300
+            fg_color=Colors.ZINC_50,
+            text_color=Colors.ZINC_900,
+            hover_color=Colors.ZINC_300,
             corner_radius=6,
             command=self.start_bot,
         )
         self.start_btn.pack(side="left", padx=5)
 
-        # Destructive Button (Stop) - Muted Red
+        # Destructive Button (Stop)
         self.stop_btn = ctk.CTkButton(
             btn_frame,
             text="STOP",
             font=("Inter", 12, "bold"),
             width=100,
             height=32,
-            fg_color="#7f1d1d",  # Red-900
-            text_color="#fecaca",  # Red-200
-            hover_color="#991b1b",  # Red-800
+            fg_color=Colors.RED_900,
+            text_color=Colors.RED_200,
+            hover_color=Colors.RED_800,
             corner_radius=6,
             state="disabled",
             command=self.stop_bot,
         )
         self.stop_btn.pack(side="left", padx=5)
 
-        # 4. Secondary Action (Calibrate) - Outline Style
-        self.calib_btn = ctk.CTkButton(
-            self,
-            text="Calibrate Coordinates",
-            font=("Inter", 12),
-            width=210,
-            height=32,
-            fg_color="transparent",
-            border_width=1,
-            border_color="#3f3f46",  # Zinc-700
-            text_color="#a1a1aa",  # Zinc-400
-            hover_color="#27272a",  # Zinc-800
-            corner_radius=6,
-            command=self.calibrate,
-        )
-        self.calib_btn.pack(pady=10)
-
-        # 5. Ghost Dimmer Slider
+        # 4. Ghost Dimmer Slider
         dimmer_frame = ctk.CTkFrame(self, fg_color="transparent")
-        dimmer_frame.pack(pady=10, fill="x", padx=40)
+        dimmer_frame.pack(pady=5, fill="x", padx=40)
+
+        # Dimmer Header Row
+        dimmer_header = ctk.CTkFrame(dimmer_frame, fg_color="transparent")
+        dimmer_header.pack(fill="x", pady=(0, 5))
 
         ctk.CTkLabel(
-            dimmer_frame,
+            dimmer_header,
             text="Ghost Dimmer",
             font=("Inter", 12, "bold"),
-            text_color="#a1a1aa",
-        ).pack(anchor="w")
+            text_color=Colors.ZINC_400,
+        ).pack(side="left")
 
+        # Dimmer Toggle Switch
+        self.dimmer_switch = ctk.CTkSwitch(
+            dimmer_header,
+            text="",
+            width=40,
+            height=20,
+            variable=self.dimmer_enabled_var,
+            command=self.toggle_dimmer,
+            progress_color=Colors.EMERALD_400,
+            fg_color=Colors.ZINC_700,
+        )
+        self.dimmer_switch.pack(side="right")
+
+        # The Slider
         self.dimmer_slider = ctk.CTkSlider(
             dimmer_frame,
-            from_=20,
+            from_=0,
             to=100,
-            number_of_steps=80,
+            number_of_steps=100,
             command=self.change_brightness,
-            fg_color="#3f3f46",  # Zinc-700
-            progress_color="#e4e4e7",  # Zinc-200
-            button_color="#fafafa",  # Zinc-50
-            button_hover_color="#d4d4d8",
+            fg_color=Colors.ZINC_700,
+            progress_color=Colors.ZINC_200,
+            button_color=Colors.ZINC_50,
+            button_hover_color=Colors.ZINC_300,
         )
         self.dimmer_slider.set(100)
         self.dimmer_slider.pack(fill="x", pady=5)
 
+        # 5. Sound Alert Toggle
+        sound_frame = ctk.CTkFrame(self, fg_color="transparent")
+        sound_frame.pack(fill="x", padx=40, pady=5)
+
+        ctk.CTkLabel(
+            sound_frame,
+            text="Sound Alert (1.5s)",
+            font=("Inter", 12, "bold"),
+            text_color=Colors.ZINC_400,
+        ).pack(side="left")
+
+        self.sound_switch = ctk.CTkSwitch(
+            sound_frame,
+            text="",
+            width=40,
+            height=20,
+            variable=self.reset_sound_enabled_var,
+            command=self.toggle_sound,
+            progress_color=Colors.EMERALD_400,
+            fg_color=Colors.ZINC_700,
+        )
+        self.sound_switch.pack(side="right")
+
         # 6. Footer
         ctk.CTkLabel(
             self,
-            text="v7.1 • Anti-Autofill",
+            text=f"{AppConfig.VERSION} • Global Accept • Fast Min",
             font=("Inter", 10),
-            text_color="#52525b",  # Zinc-600
+            text_color=Colors.ZINC_600,
         ).pack(side="bottom", pady=10)
 
-    def load_settings(self):
+    def _on_time_changed(self, var, index, mode) -> None:
+        """Auto-save reset time when user types."""
+        val = self.reset_time_var.get()
+        if val.isdigit():
+            config_manager.set("reset_time", int(val))
+
+    def load_settings(self) -> None:
+        # Load Reset Time
         saved_time = config_manager.get("reset_time")
         self.reset_time_var.set(str(saved_time))
 
-    def update_status(self, text, color=None):
-        # Map logical colors to Shadcn palette
-        # Green -> Emerald-400 (#34d399)
-        # Red -> Rose-400 (#fb7185)
-        # Blue -> Sky-400 (#38bdf8)
-        # Orange -> Amber-400 (#fbbf24)
-        # Default/Gray -> Zinc-400 (#a1a1aa)
+        # Load Dimmer Settings
+        dimmer_val = config_manager.get("dimmer_value") or 100
+        dimmer_enabled = config_manager.get("dimmer_enabled")
+        if dimmer_enabled is None:
+            dimmer_enabled = True
 
-        color_map = {
-            "green": "#34d399",
-            "red": "#fb7185",
-            "blue": "#38bdf8",
-            "orange": "#fbbf24",
-            "black": "#a1a1aa",  # Default in dark mode
-            "gray": "#a1a1aa",
+        self.dimmer_slider.set(float(dimmer_val))
+        self.dimmer_enabled_var.set(dimmer_enabled)
+
+        # Load Sound Settings
+        saved_sound = config_manager.get("reset_sound_enabled")
+        if saved_sound is None:
+            saved_sound = True
+        self.reset_sound_enabled_var.set(saved_sound)
+
+        # Apply settings immediately
+        self.toggle_dimmer(save=False)
+
+    def toggle_sound(self) -> None:
+        is_enabled = self.reset_sound_enabled_var.get()
+        config_manager.set("reset_sound_enabled", is_enabled)
+        logger.info(f"Sound alert toggled: {is_enabled}")
+
+    def toggle_dimmer(self, save: bool = True) -> None:
+        is_enabled = self.dimmer_enabled_var.get()
+        current_val = self.dimmer_slider.get()
+
+        if save:
+            config_manager.set("dimmer_enabled", is_enabled)
+
+        if is_enabled:
+            self.dimmer_slider.configure(state="normal", button_color=Colors.ZINC_50)
+
+            # Smooth Step Down
+            if current_val < 90:
+                temp_val = 90
+                while temp_val > current_val:
+                    self.dimmer.set_brightness(int(temp_val))
+                    temp_val -= 20
+                    time.sleep(0.015)
+
+            # Final set
+            self.dimmer.set_brightness(int(current_val))
+        else:
+            self.dimmer_slider.configure(state="disabled", button_color=Colors.ZINC_700)
+            self.dimmer.set_brightness(100)
+
+    def change_brightness(self, value: float) -> None:
+        # Only apply if enabled
+        if self.dimmer_enabled_var.get():
+            self.dimmer.set_brightness(int(value))
+            config_manager.set("dimmer_value", int(value))
+
+    def update_status(self, text: str, color: Optional[str] = None) -> None:
+        # Map logical colors to constants
+        color_map: Dict[str, str] = {
+            "green": Colors.STATUS_GREEN,
+            "red": Colors.STATUS_RED,
+            "blue": Colors.STATUS_BLUE,
+            "orange": Colors.STATUS_ORANGE,
+            "gray": Colors.STATUS_GRAY,
+            "purple": Colors.ROSE_400,  # Fallback/Custom
         }
+        final_color = color_map.get(str(color).lower(), Colors.STATUS_GRAY)
 
-        final_color = color_map.get(str(color).lower(), "#a1a1aa")
-        self.status_label.configure(text=text, text_color=final_color)
+        # Thread-safe update
+        self.after(
+            0, lambda: self.status_label.configure(text=text, text_color=final_color)
+        )
 
-    def toggle_pin(self):
-        is_pinned = self.pin_var.get()
-        self.attributes("-topmost", is_pinned)
+    def on_bot_stop(self, status: str, color: str) -> None:
+        def _update_ui():
+            self.update_status(status, color)
+            self.start_btn.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+            self.reset_time_entry.configure(state="normal")
+            self.bot = None
 
-    def change_brightness(self, value):
-        self.dimmer.set_brightness(value)
+        self.after(0, _update_ui)
 
-    def on_bot_stop(self, status, color):
-        self.update_status(status, color)
-        self.start_btn.configure(state="normal")
-        self.stop_btn.configure(state="disabled")
-        self.reset_time_entry.configure(state="normal")
-        self.bot = None
-
-    def start_bot(self):
-        print("Bot Started")
+    def start_bot(self) -> None:
+        logger.info("Starting bot...")
         try:
             new_time = int(self.reset_time_var.get())
             config_manager.set("reset_time", new_time)
@@ -234,81 +298,32 @@ class AntiFateApp(ctk.CTk):
         )
         self.bot.start()
 
-    def stop_bot(self):
-        print("Bot Stopping...")
+    def stop_bot(self) -> None:
+        logger.info("Bot Stopping...")
         if self.bot:
             self.bot.stop()
         self.stop_btn.configure(state="disabled")
 
-    def calibrate(self):
-        messagebox.showinfo(
-            "Calibration",
-            "After closing this, you have 3 seconds to hover over the target.\n\n"
-            "Tool will auto-capture pos & color (Anti-Hover enabled).",
-        )
-
-        self.update_status("Calibrating in 3...", "blue")
-        self.after(1000, lambda: self.update_status("Calibrating in 2...", "blue"))
-        self.after(2000, lambda: self.update_status("Calibrating in 1...", "blue"))
-        self.after(3000, self.perform_calibration)
-
-    def perform_calibration(self):
-        def _calib_task():
-            try:
-                x, y = pyautogui.position()
-
-                # Anti-Hover: Move away
-                pyautogui.moveTo(10, 10)
-
-                # Update UI from thread? No, use after() or simple wait
-                # Here we are in a thread (if using threading) or main thread.
-                # Since perform_calibration is called by after(), it's in main thread.
-                # Blocking main thread for 1s is 'okay' for simple tool, but better to force update.
-
-                # Since we can't sleep in main thread without freezing UI,
-                # we should use another after() sequence or just accept a micro-freeze.
-                # But for smoother UX, let's use a small helper or just sleep.
-                # Given the requirements, a 1s freeze is acceptable for "Wait for hover reset".
-
-                self.after(
-                    0,
-                    lambda: self.update_status("Waiting for hover reset...", "orange"),
-                )
-                time.sleep(1.0)
-
-                r, g, b = pyautogui.pixel(x, y)
-                result_text = f"Pos: [{x}, {y}]\nColor: [{r}, {g}, {b}]"
-
-                # Copy to clipboard
-                self.clipboard_clear()
-                self.clipboard_append(result_text)
-
-                self.after(0, lambda: self.update_status("Captured!", "blue"))
-
-                # Move back
-                pyautogui.moveTo(x, y)
-
-                self.after(
-                    0,
-                    lambda: messagebox.showinfo(
-                        "Result (Copied)",
-                        f"Captured (Anti-Hover):\n\n{result_text}\n\nCopied to clipboard.",
-                    ),
-                )
-
-                self.after(0, lambda: self.update_status("Status: Ready", "gray"))
-
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Error", f"Failed: {e}"))
-
-        # Run calibration in a separate thread to avoid freezing the "Waiting" UI update
-        threading.Thread(target=_calib_task, daemon=True).start()
-
-    def on_closing(self):
+    def on_closing(self) -> None:
         """Cleanup before closing"""
-        if self.bot:
-            self.bot.stop()
-        if self.dimmer:
-            self.dimmer.reset()  # Critical: restore brightness
-            self.dimmer.close()
-        self.destroy()
+        logger.info("Closing application...")
+        try:
+            if self.bot:
+                # Disable callback to avoid updating destroyed widgets
+                self.bot.on_stop_callback = None
+                self.bot.stop()
+
+            if self.dimmer:
+                # Reset brightness to 100% before exit
+                self.dimmer.close()
+
+            self.destroy()
+            # Explicitly exit to ensure all threads are killed
+            import sys
+
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"Error during closing: {e}")
+            import os
+
+            os._exit(0)

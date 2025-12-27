@@ -29,7 +29,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='AntiFateEngine_v7.1',
+    name='AntiFateEngine_v7.3',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -1,223 +1,271 @@
 import threading
 import time
+import winsound
 import pyautogui
-import win32gui
-import win32con
-import win32com.client
+from enum import Enum, auto
+from typing import Callable, Optional, Tuple
+
 from config import config_manager
+from constants import GameInfo, UIStatus, Colors
+from logger import logger
+from utils.windows import (
+    find_window_by_title,
+    force_focus_window,
+    get_foreground_window_title,
+)
 
 
-class BotState:
-    SEARCHING = "SEARCHING"
-    STANDBY = "STANDBY"
+class BotState(Enum):
+    SEARCHING = auto()
+    VERIFYING = auto()
+    STANDBY = auto()
 
 
 class AntiFateBot(threading.Thread):
-    def __init__(self, update_status_callback, on_stop_callback):
+    def __init__(
+        self,
+        update_status_callback: Callable[[str, str], None],
+        on_stop_callback: Optional[Callable[[str, str], None]],
+    ):
         super().__init__()
         self.update_status_callback = update_status_callback
         self.on_stop_callback = on_stop_callback
-        self.running = False
-        self.state = BotState.SEARCHING
-        self.start_search_time = 0
+        self.running: bool = False
+        self.state: BotState = BotState.SEARCHING
+        self.start_search_time: float = 0
+        self.sound_played: bool = False
         self.daemon = True
 
-    def focus_client(self):
-        """Attempts to bring the League of Legends client to the foreground using forced methods."""
+    def focus_client(self) -> None:
+        """Attempts to bring the League of Legends client to the foreground."""
+        hwnd = find_window_by_title(GameInfo.CLIENT_TITLE)
+        if hwnd:
+            force_focus_window(hwnd)
+        else:
+            logger.warning("League client window not found!")
+
+    def is_game_running(self) -> bool:
+        """Checks if the actual LoL Game (not Client) is the foreground window."""
+        title = get_foreground_window_title()
+        return GameInfo.GAME_TITLE in title
+
+    def check_pixel(
+        self, pos: list[int], color: list[int], tolerance: int = 10
+    ) -> bool:
+        """Safe wrapper for pixel matching."""
         try:
-            # League client title is usually "League of Legends"
-            hwnd = win32gui.FindWindow(None, "League of Legends")
-            if hwnd:
-                # Check if already foreground to avoid unnecessary flashes
-                fg_hwnd = win32gui.GetForegroundWindow()
-                if fg_hwnd == hwnd:
-                    return
-
-                print("Focusing League client...")
-                try:
-                    # Trick to bypass Windows Foreground Lock
-                    shell = win32com.client.Dispatch("WScript.Shell")
-                    shell.SendKeys("%")  # Sends a harmless ALT key press
-
-                    win32gui.ShowWindow(
-                        hwnd, win32con.SW_RESTORE
-                    )  # Restore if minimized
-                    win32gui.SetForegroundWindow(hwnd)  # Bring to front
-                    time.sleep(0.5)  # Wait for render
-                except Exception as e:
-                    print(f"Force focus failed: {e}")
-            else:
-                print("League client window not found!")
+            return pyautogui.pixelMatchesColor(
+                pos[0], pos[1], (color[0], color[1], color[2]), tolerance=tolerance
+            )
         except Exception as e:
-            print(f"Error focusing client: {e}")
-
-    def is_client_foreground(self):
-        """Checks if League of Legends is the current active window."""
-        try:
-            hwnd = win32gui.GetForegroundWindow()
-            title = win32gui.GetWindowText(hwnd)
-            return "League of Legends" in title
-        except Exception:
+            logger.error(f"Pixel check failed at {pos}: {e}")
             return False
 
-    def run(self):
+    def run(self) -> None:
         self.running = True
         self.state = BotState.SEARCHING
         self.start_search_time = time.time()
 
-        # Initial callback
-        self.update_status_callback("Bot Started - Searching...", "blue")
-
-        # Load config once
-        accept_pos = config_manager.get("accept_match_pixel_pos") or [0, 0]
-        accept_color = config_manager.get("accept_match_pixel_color") or [0, 0, 0]
-
-        find_pos = config_manager.get("find_match_button_pos") or [0, 0]
-        cancel_pos = config_manager.get("cancel_button_pos") or find_pos
-
-        queue_pos = config_manager.get("in_queue_pixel_pos") or [0, 0]
-        queue_color = config_manager.get("in_queue_pixel_color") or [0, 0, 0]
-
-        reset_threshold = int(config_manager.get("reset_time") or 120)
-
-        print(f"Bot started. Threshold: {reset_threshold}s. Mode: Immortal Supervisor")
+        logger.info(f"Bot started. Threshold: {config_manager.get('reset_time')}s")
+        self.update_status_callback(UIStatus.RUNNING, "blue")
 
         while self.running:
             try:
-                # --- STATE: SEARCHING ---
                 if self.state == BotState.SEARCHING:
-                    current_time = time.time()
-                    elapsed = int(current_time - self.start_search_time)
-
-                    # 1. Check Accept (Always priority)
-                    # ONLY check if League Client is FOREGROUND to avoid false positives (YouTube/FB)
-                    if self.is_client_foreground():
-                        if pyautogui.pixelMatchesColor(
-                            accept_pos[0],
-                            accept_pos[1],
-                            (accept_color[0], accept_color[1], accept_color[2]),
-                            tolerance=10,
-                        ):
-                            # DEBOUNCE CHECK: Verify if it's a real button or just a UI flash
-                            print("Possible match detected. Verifying...")
-                            time.sleep(0.5)
-
-                            if pyautogui.pixelMatchesColor(
-                                accept_pos[0],
-                                accept_pos[1],
-                                (accept_color[0], accept_color[1], accept_color[2]),
-                                tolerance=10,
-                            ):
-                                self.update_status_callback(
-                                    "MATCH FOUND! Accepting...", "green"
-                                )
-                                print("Match found! Clicking Accept...")
-                                pyautogui.click(accept_pos[0], accept_pos[1])
-
-                                # Move to STANDBY state
-                                self.state = BotState.STANDBY
-                                self.update_status_callback(
-                                    "Accepted. Monitoring...", "purple"
-                                )
-                                time.sleep(1)  # Wait for click registration
-                                continue
-                            else:
-                                print("False positive ignored (UI Flash).")
-
-                    # 2. Check Queue & Handle Reset Logic
-                    self.update_status_callback(
-                        f"Searching... ({elapsed}/{reset_threshold}s)", "orange"
-                    )
-
-                    # Check if threshold reached
-                    if elapsed >= reset_threshold:
-                        print("Threshold reached. Checking window focus...")
-                        # Force focus to check reality
-                        self.focus_client()
-
-                        # Re-check queue pixel after focus
-                        if pyautogui.pixelMatchesColor(
-                            queue_pos[0],
-                            queue_pos[1],
-                            (queue_color[0], queue_color[1], queue_color[2]),
-                            tolerance=10,
-                        ):
-                            self.update_status_callback("Resetting Queue...", "red")
-                            print("Resetting queue...")
-
-                            # Perform Reset
-                            pyautogui.click(cancel_pos[0], cancel_pos[1])
-                            time.sleep(2)
-                            pyautogui.click(find_pos[0], find_pos[1])
-
-                            # Reset Timer
-                            self.start_search_time = time.time()
-                            self.update_status_callback(
-                                "Queue Reset. Restarting...", "blue"
-                            )
-                        else:
-                            print("Queue pixel not found after focus. Resetting timer.")
-                            self.start_search_time = time.time()
-
-                # --- STATE: STANDBY (Supervisor) ---
+                    self._handle_searching()
+                elif self.state == BotState.VERIFYING:
+                    self._handle_verifying()
                 elif self.state == BotState.STANDBY:
-                    # Check for Queue pixel (Dodge detection)
-                    # Optimistic check first (without focus) to save resources
-                    if pyautogui.pixelMatchesColor(
-                        queue_pos[0],
-                        queue_pos[1],
-                        (queue_color[0], queue_color[1], queue_color[2]),
-                        tolerance=10,
-                    ):
-                        print("Potential Dodge detected. Verifying...")
-
-                        # SAFETY FIRST: Focus client before clicking anything!
-                        self.focus_client()
-                        time.sleep(0.5)  # Wait for window to settle
-
-                        # Verify again after focus
-                        if pyautogui.pixelMatchesColor(
-                            queue_pos[0],
-                            queue_pos[1],
-                            (queue_color[0], queue_color[1], queue_color[2]),
-                            tolerance=10,
-                        ):
-                            print("Dodge CONFIRMED. Performing Hard Reset...")
-                            self.update_status_callback(
-                                "Dodge detected! Resetting...", "red"
-                            )
-
-                            # Hard Reset Sequence
-                            pyautogui.click(cancel_pos[0], cancel_pos[1])
-                            time.sleep(2)
-                            pyautogui.click(find_pos[0], find_pos[1])
-
-                            self.state = BotState.SEARCHING
-                            self.start_search_time = time.time()
-                            self.update_status_callback(
-                                "Queue Reset. Searching...", "blue"
-                            )
-                        else:
-                            print("False alarm (Background pixel match).")
-                            self.update_status_callback(
-                                "Standby (In Game/Lobby)...", "gray"
-                            )
-                    else:
-                        self.update_status_callback(
-                            "Standby (In Game/Lobby)...", "gray"
-                        )
+                    self._handle_standby()
 
                 time.sleep(1)
 
             except Exception as e:
-                print(f"Bot Error: {e}")
+                logger.error(f"Bot Loop Error: {e}")
                 self.update_status_callback(f"Error: {str(e)[:20]}", "red")
-                # Don't stop on minor errors, just sleep and retry
                 time.sleep(2)
 
-    def stop(self, found=False):
+    def _handle_searching(self) -> None:
+        current_time = time.time()
+        elapsed_float = current_time - self.start_search_time
+        elapsed = int(elapsed_float)
+        reset_threshold = int(config_manager.get("reset_time") or 120)
+
+        # Sound Notification (1.5s before reset)
+        if config_manager.get("reset_sound_enabled") and not self.sound_played:
+            if elapsed_float >= (reset_threshold - 1.5):
+                logger.info("Playing pre-reset sound alert...")
+                self.sound_played = True
+                threading.Thread(
+                    target=lambda: winsound.MessageBeep(winsound.MB_ICONASTERISK),
+                    daemon=True,
+                ).start()
+
+        # 1. Check Accept (Global check)
+        accept_pos = config_manager.get("accept_match_pixel_pos")
+        accept_color = config_manager.get("accept_match_pixel_color")
+
+        if self.check_pixel(accept_pos, accept_color):
+            logger.info("MATCH FOUND! Accepting...")
+            self.update_status_callback(UIStatus.MATCH_FOUND, "green")
+
+            pyautogui.click(accept_pos[0], accept_pos[1])
+
+            # Transition to VERIFYING instead of STANDBY
+            self.state = BotState.VERIFYING
+            self.verify_start_time = time.time()
+            self.update_status_callback("Verifying Accept...", "purple")
+            time.sleep(0.5)
+            return
+
+        # 2. Check Timer & Reset
+        self.update_status_callback(
+            UIStatus.SEARCHING.format(elapsed, reset_threshold), "orange"
+        )
+
+        if elapsed >= reset_threshold:
+            logger.info("Threshold reached. Context checking...")
+
+            if self.is_game_running():
+                logger.info("User IN GAME. Skipping focus.")
+                self.start_search_time = time.time()
+                self.sound_played = False
+                time.sleep(1)
+                return
+
+            # Focus Client
+            self.focus_client()
+
+            # Verify Queue State
+            queue_pos = config_manager.get("in_queue_pixel_pos")
+            queue_color = config_manager.get("in_queue_pixel_color")
+
+            if self.check_pixel(queue_pos, queue_color):
+                self._perform_reset()
+            else:
+                logger.info("Queue pixel not found. Resetting timer.")
+                self.start_search_time = time.time()
+                self.sound_played = False
+
+    def _handle_verifying(self) -> None:
+        """
+        New state to handle the 'Accept Clicked' limbo.
+        We wait here until we confirm we are in Champ Select.
+        If we see the queue again, we go back to SEARCHING.
+        """
+        elapsed = time.time() - self.verify_start_time
+        timeout = 25  # Increased from 7s to 25s (LoL timer is ~12s + lag)
+        remaining = int(max(0, timeout - elapsed))
+
+        # Update UI with countdown
+        self.update_status_callback(UIStatus.VERIFYING.format(remaining), "purple")
+
+        # 1. Check if we are in Champ Select (Success Condition)
+        champ_pos = config_manager.get("champ_select_pixel_pos")
+        champ_color = config_manager.get("champ_select_pixel_color")
+
+        # Only check if config is set (not [0,0])
+        if champ_pos and champ_pos != [0, 0]:
+            if self.check_pixel(champ_pos, champ_color):
+                logger.info("CHAMP SELECT CONFIRMED! Entering Standby.")
+                self.state = BotState.STANDBY
+                self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
+                # Sleep briefly to let user see the green success message
+                time.sleep(2)
+                self.update_status_callback(UIStatus.STANDBY, "gray")
+                return
+
+        # 2. Check if we are back in Queue (Failure Condition - Dodge/Decline)
+        queue_pos = config_manager.get("in_queue_pixel_pos")
+        queue_color = config_manager.get("in_queue_pixel_color")
+
+        if self.check_pixel(queue_pos, queue_color):
+            logger.info(
+                "Back in queue detected (Decline/Dodge). Hard Resetting immediately."
+            )
+            self._perform_reset()
+            self.state = BotState.SEARCHING
+            return
+
+        # 3. Check Accept button again (Retry Condition)
+        accept_pos = config_manager.get("accept_match_pixel_pos")
+        accept_color = config_manager.get("accept_match_pixel_color")
+
+        if self.check_pixel(accept_pos, accept_color):
+            logger.info("Accept button reappeared. Clicking again...")
+            pyautogui.click(accept_pos[0], accept_pos[1])
+            time.sleep(0.5)
+            return
+
+        # 4. Timeout
+        if elapsed > timeout:
+            logger.warning(
+                "Verification timed out. Assuming logic failure or lag. Hard Resetting."
+            )
+            # Force focus client to foreground because if match was declined,
+            # the client might still be in background (user alt-tabbed).
+            self.focus_client()
+            time.sleep(0.5)
+
+            self._perform_reset()
+            self.state = BotState.SEARCHING
+            self.update_status_callback("Verify Timeout", "orange")
+            time.sleep(1)
+
+    def _perform_reset(self) -> None:
+        logger.info("Resetting queue...")
+        self.sound_played = False
+        self.update_status_callback(UIStatus.RESETTING, "red")
+
+        find_pos = config_manager.get("find_match_button_pos")
+        cancel_pos = config_manager.get("cancel_button_pos")
+        minimize_pos = config_manager.get("minimize_btn_pos")
+
+        # Cancel
+        pyautogui.click(cancel_pos[0], cancel_pos[1])
+        time.sleep(1.0)  # Shortened wait
+
+        # Find Match
+        pyautogui.click(find_pos[0], find_pos[1])
+
+        # Auto Minimize (New Feature)
+        if minimize_pos and minimize_pos != [0, 0]:
+            time.sleep(0.2)
+            logger.info(f"Minimizing client at {minimize_pos}")
+            pyautogui.click(minimize_pos[0], minimize_pos[1])
+
+        self.start_search_time = time.time()
+        self.sound_played = False
+        self.update_status_callback(UIStatus.RESTARTING, "blue")
+
+    def _handle_standby(self) -> None:
+        queue_pos = config_manager.get("in_queue_pixel_pos")
+        queue_color = config_manager.get("in_queue_pixel_color")
+
+        # Optimistic check
+        if self.check_pixel(queue_pos, queue_color):
+            if self.is_game_running():
+                logger.info("In Game during standby. Ignoring.")
+                time.sleep(5)
+                return
+
+            # Verification Focus
+            logger.info("Potential Dodge. Verifying...")
+            self.focus_client()
+            time.sleep(0.5)
+
+            if self.check_pixel(queue_pos, queue_color):
+                logger.info("Dodge CONFIRMED. Hard Reset.")
+                self.update_status_callback(UIStatus.DODGE_DETECTED, "red")
+                self._perform_reset()
+                self.state = BotState.SEARCHING
+            else:
+                logger.info("False alarm.")
+                self.update_status_callback(UIStatus.STANDBY, "gray")
+        else:
+            self.update_status_callback(UIStatus.STANDBY, "gray")
+
+    def stop(self, found: bool = False) -> None:
         self.running = False
         if self.on_stop_callback:
-            status = "Stopped"
-            color = "red"
-            self.on_stop_callback(status, color)
+            self.on_stop_callback(UIStatus.STOPPED, "red")

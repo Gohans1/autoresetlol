@@ -1,25 +1,14 @@
 {
-    "find_match_button_pos": [
-        100,
-        200
-    ],
-    "in_queue_pixel_pos": [
-        105,
-        250
-    ],
-    "in_queue_pixel_color": [
-        20,
-        25,
-        30
-    ],
-    "accept_match_pixel_pos": [
-        500,
-        400
-    ],
-    "accept_match_pixel_color": [
-        10,
-        200,
-        50
-    ],
-    "reset_time": 120
+    "find_match_button_pos": [100, 200],
+    "cancel_button_pos": [100, 200],
+    "in_queue_pixel_pos": [105, 250],
+    "in_queue_pixel_color": [20, 25, 30],
+    "accept_match_pixel_pos": [500, 400],
+    "accept_match_pixel_color": [10, 200, 50],
+    "champ_select_pixel_pos": [0, 0],
+    "champ_select_pixel_color": [0, 0, 0],
+    "minimize_btn_pos": [0, 0],
+    "reset_time": 120,
+    "dimmer_value": 100,
+    "dimmer_enabled": true
 }
