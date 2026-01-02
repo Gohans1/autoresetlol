@@ -6,7 +6,7 @@ from enum import Enum, auto
 from typing import Callable, Optional, Tuple
 
 from config import config_manager
-from constants import GameInfo, UIStatus, Colors
+from constants import GameInfo, UIStatus, Colors, AppConfig
 from logger import logger
 from utils.windows import (
     find_window_by_title,
@@ -103,8 +103,7 @@ class AntiFateBot(threading.Thread):
                 if self.on_success_callback:
                     self.on_success_callback()
                 self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
-                time.sleep(2)
-                self.update_status_callback(UIStatus.STANDBY, "gray")
+                # Removed sleep, UI should handle state-based colors
                 return
 
         # Sound Notification (1.5s before reset)
@@ -170,7 +169,7 @@ class AntiFateBot(threading.Thread):
         If we see the queue again, we go back to SEARCHING.
         """
         elapsed = time.time() - self.verify_start_time
-        timeout = 25  # Increased from 7s to 25s (LoL timer is ~12s + lag)
+        timeout = AppConfig.VERIFY_TIMEOUT
         remaining = int(max(0, timeout - elapsed))
 
         # Update UI with countdown
@@ -188,9 +187,6 @@ class AntiFateBot(threading.Thread):
                 if self.on_success_callback:
                     self.on_success_callback()
                 self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
-                # Sleep briefly to let user see the green success message
-                time.sleep(2)
-                self.update_status_callback(UIStatus.STANDBY, "gray")
                 return
 
         # 2. Check if we are back in Queue (Failure Condition - Dodge/Decline)

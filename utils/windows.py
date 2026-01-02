@@ -133,28 +133,29 @@ def set_autostart(app_name: str, add: bool = True) -> bool:
         script_path = os.path.abspath(sys.argv[0])
         current_path = f'"{python_exe}" "{script_path}"'
 
-    # Ensure the path is quoted if it contains spaces
-    if not current_path.startswith('"') and " " in current_path:
+    # Ensure path is quoted if it contains spaces (for EXE case)
+    if (
+        getattr(sys, "frozen", False)
+        and " " in current_path
+        and not current_path.startswith('"')
+    ):
         current_path = f'"{current_path}"'
 
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
     try:
-        key = winreg.OpenKey(
+        with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS
-        )
-
-        if add:
-            winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, current_path)
-            logger.info(f"Added {app_name} to Startup: {current_path}")
-        else:
-            try:
-                winreg.DeleteValue(key, app_name)
-                logger.info(f"Removed {app_name} from Startup.")
-            except FileNotFoundError:
-                logger.debug(f"{app_name} not found in Startup Registry.")
-
-        winreg.CloseKey(key)
+        ) as key:
+            if add:
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, current_path)
+                logger.info(f"Added {app_name} to Startup: {current_path}")
+            else:
+                try:
+                    winreg.DeleteValue(key, app_name)
+                    logger.info(f"Removed {app_name} from Startup.")
+                except FileNotFoundError:
+                    logger.debug(f"{app_name} not found in Startup Registry.")
         return True
     except Exception as e:
         logger.error(f"Failed to update Startup Registry: {e}")

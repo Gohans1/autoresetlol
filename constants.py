@@ -11,6 +11,7 @@ class AppConfig:
     THEME_COLOR: str = "blue"
     CONFIG_FILE: str = "config.json"
     LOG_FILE: str = "autoresetlol.log"
+    VERIFY_TIMEOUT: int = 25
 
 
 class GameInfo:
