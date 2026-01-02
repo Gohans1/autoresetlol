@@ -1,6 +1,12 @@
 import sys
+import os
+from constants import BASE_DIR
 from gui import AntiFateApp
 from logger import logger
+
+# Change working directory to base directory to avoid issues with relative paths
+# when started from Windows Startup (Registry) where CWD might be System32
+os.chdir(BASE_DIR)
 
 # Explicit imports to force PyInstaller to include them
 import pyscreeze  # type: ignore

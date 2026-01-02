@@ -1,16 +1,29 @@
 from enum import Enum, auto
 from typing import Tuple, List, Dict, Any
 import os
+import sys
+
+
+def get_base_dir() -> str:
+    """Returns the base directory of the application."""
+    if getattr(sys, "frozen", False):
+        # Running as a compiled executable
+        return os.path.dirname(sys.executable)
+    # Running as a script
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+BASE_DIR = get_base_dir()
 
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
     VERSION: str = "v7.14"
-    GEOMETRY: str = "340x480"  # Increased height for new checkbox
+    GEOMETRY: str = "340x480"
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
-    CONFIG_FILE: str = "config.json"
-    LOG_FILE: str = "autoresetlol.log"
+    CONFIG_FILE: str = os.path.join(BASE_DIR, "config.json")
+    LOG_FILE: str = os.path.join(BASE_DIR, "autoresetlol.log")
     VERIFY_TIMEOUT: int = 25
 
 

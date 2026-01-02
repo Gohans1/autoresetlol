@@ -3,7 +3,7 @@ import os
 import logging
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass, asdict, field
-from constants import DefaultConfig
+from constants import DefaultConfig, AppConfig
 
 logger = logging.getLogger("AutoResetLoL")
 
@@ -51,8 +51,8 @@ class BotConfig:
 
 
 class ConfigManager:
-    def __init__(self, config_file: str = "config.json"):
-        self.config_file = config_file
+    def __init__(self, config_file: Optional[str] = None):
+        self.config_file = config_file or AppConfig.CONFIG_FILE
         self.config: BotConfig = BotConfig()
         self.load_config()
 
