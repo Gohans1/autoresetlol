@@ -34,3 +34,7 @@
 - **Global Champ Select Check:** Bot PHẢI kiểm tra pixel Chọn Tướng trong MỌI trạng thái (đặc biệt là khi đang đếm ngược reset 90s). Nếu phát hiện Chọn Tướng, PHẢI nhảy sang `STANDBY` ngay lập tức.
 - **Manual Support:** Bot PHẢI hỗ trợ việc người dùng bấm Accept bằng tay.
 - **Success UI Reset:** Khi xác nhận vào Chọn Tướng thành công, bot PHẢI reset Gamma Dimmer về 100% để đảm bảo tầm nhìn cho người dùng.
+
+## 7. Auto Startup Logic (v7.14)
+- **Method:** Dùng `winreg` can thiệp vào `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`.
+- **Path Handling:** PHẢI handle cả trường hợp chạy script (.py) và file đóng gói (.exe) bằng cách check `sys.frozen`. Đường dẫn trong Registry PHẢI được bọc trong ngoặc kép nếu có khoảng trắng.
