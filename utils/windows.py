@@ -5,6 +5,9 @@ import time
 import win32gui
 import win32con
 import win32com.client
+import winreg
+import sys
+import os
 from typing import Optional, Tuple
 
 # Get logger instance by name
@@ -114,3 +117,45 @@ class GammaController:
             self.reset()
             user32.ReleaseDC(None, self.hdc)
             self.hdc = None
+
+
+def set_autostart(app_name: str, add: bool = True) -> bool:
+    """
+    Adds or removes the application from Windows Startup (Registry).
+    """
+    # 1. Determine execution path
+    if getattr(sys, "frozen", False):
+        # Compiled with PyInstaller
+        current_path = sys.executable
+    else:
+        # Running as script
+        python_exe = sys.executable
+        script_path = os.path.abspath(sys.argv[0])
+        current_path = f'"{python_exe}" "{script_path}"'
+
+    # Ensure the path is quoted if it contains spaces
+    if not current_path.startswith('"') and " " in current_path:
+        current_path = f'"{current_path}"'
+
+    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS
+        )
+
+        if add:
+            winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, current_path)
+            logger.info(f"Added {app_name} to Startup: {current_path}")
+        else:
+            try:
+                winreg.DeleteValue(key, app_name)
+                logger.info(f"Removed {app_name} from Startup.")
+            except FileNotFoundError:
+                logger.debug(f"{app_name} not found in Startup Registry.")
+
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update Startup Registry: {e}")
+        return False

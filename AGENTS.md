@@ -29,3 +29,8 @@
 ## 5. Sound Notifications
 - **Pre-reset Alert:** Bot plays a 'ting' sound (`winsound.MB_ICONASTERISK`) approximately 1.5 seconds before resetting the queue to alert the user.
 - **Toggleable:** This feature can be enabled/disabled via the GUI and is stored in `config.json`.
+
+## 6. Logic "Bất Tử" (v7.13)
+- **Global Champ Select Check:** Bot PHẢI kiểm tra pixel Chọn Tướng trong MỌI trạng thái (đặc biệt là khi đang đếm ngược reset 90s). Nếu phát hiện Chọn Tướng, PHẢI nhảy sang `STANDBY` ngay lập tức.
+- **Manual Support:** Bot PHẢI hỗ trợ việc người dùng bấm Accept bằng tay.
+- **Success UI Reset:** Khi xác nhận vào Chọn Tướng thành công, bot PHẢI reset Gamma Dimmer về 100% để đảm bảo tầm nhìn cho người dùng.

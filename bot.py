@@ -26,10 +26,12 @@ class AntiFateBot(threading.Thread):
         self,
         update_status_callback: Callable[[str, str], None],
         on_stop_callback: Optional[Callable[[str, str], None]],
+        on_success_callback: Optional[Callable[[], None]] = None,
     ):
         super().__init__()
         self.update_status_callback = update_status_callback
         self.on_stop_callback = on_stop_callback
+        self.on_success_callback = on_success_callback
         self.running: bool = False
         self.state: BotState = BotState.SEARCHING
         self.start_search_time: float = 0
@@ -90,6 +92,20 @@ class AntiFateBot(threading.Thread):
         elapsed_float = current_time - self.start_search_time
         elapsed = int(elapsed_float)
         reset_threshold = int(config_manager.get("reset_time") or 120)
+
+        # 0. Global Champ Select Check (Handles manual accept or late start)
+        champ_pos = config_manager.get("champ_select_pixel_pos")
+        champ_color = config_manager.get("champ_select_pixel_color")
+        if champ_pos and champ_pos != [0, 0]:
+            if self.check_pixel(champ_pos, champ_color):
+                logger.info("CHAMP SELECT DETECTED (Manual/Late)! Entering Standby.")
+                self.state = BotState.STANDBY
+                if self.on_success_callback:
+                    self.on_success_callback()
+                self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
+                time.sleep(2)
+                self.update_status_callback(UIStatus.STANDBY, "gray")
+                return
 
         # Sound Notification (1.5s before reset)
         if config_manager.get("reset_sound_enabled") and not self.sound_played:
@@ -169,6 +185,8 @@ class AntiFateBot(threading.Thread):
             if self.check_pixel(champ_pos, champ_color):
                 logger.info("CHAMP SELECT CONFIRMED! Entering Standby.")
                 self.state = BotState.STANDBY
+                if self.on_success_callback:
+                    self.on_success_callback()
                 self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
                 # Sleep briefly to let user see the green success message
                 time.sleep(2)

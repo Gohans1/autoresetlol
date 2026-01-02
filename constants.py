@@ -5,8 +5,8 @@ import os
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v7.12"
-    GEOMETRY: str = "340x440"
+    VERSION: str = "v7.14"
+    GEOMETRY: str = "340x480"  # Increased height for new checkbox
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
     CONFIG_FILE: str = "config.json"
@@ -59,6 +59,7 @@ class DefaultConfig:
     DIMMER_VALUE: int = 100
     DIMMER_ENABLED: bool = True
     RESET_SOUND_ENABLED: bool = True
+    AUTO_STARTUP_ENABLED: bool = False
 
 
 class UIStatus:

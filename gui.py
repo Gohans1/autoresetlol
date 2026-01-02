@@ -8,7 +8,7 @@ from typing import Optional, Dict
 
 from config import config_manager
 from bot import AntiFateBot
-from utils.windows import GammaController
+from utils.windows import GammaController, set_autostart
 from constants import AppConfig, Colors, UIStatus
 from logger import logger
 
@@ -34,6 +34,7 @@ class AntiFateApp(ctk.CTk):
         self.reset_time_var.trace_add("write", self._on_time_changed)
         self.dimmer_enabled_var = ctk.BooleanVar(value=True)
         self.reset_sound_enabled_var = ctk.BooleanVar(value=True)
+        self.auto_startup_enabled_var = ctk.BooleanVar(value=False)
 
         self.create_widgets()
         self.load_settings()
@@ -180,7 +181,30 @@ class AntiFateApp(ctk.CTk):
         )
         self.sound_switch.pack(side="right")
 
-        # 6. Footer
+        # 6. Auto Startup Toggle
+        startup_frame = ctk.CTkFrame(self, fg_color="transparent")
+        startup_frame.pack(fill="x", padx=40, pady=5)
+
+        ctk.CTkLabel(
+            startup_frame,
+            text="Auto Startup",
+            font=("Inter", 12, "bold"),
+            text_color=Colors.ZINC_400,
+        ).pack(side="left")
+
+        self.startup_switch = ctk.CTkSwitch(
+            startup_frame,
+            text="",
+            width=40,
+            height=20,
+            variable=self.auto_startup_enabled_var,
+            command=self.toggle_startup,
+            progress_color=Colors.EMERALD_400,
+            fg_color=Colors.ZINC_700,
+        )
+        self.startup_switch.pack(side="right")
+
+        # 7. Footer
         ctk.CTkLabel(
             self,
             text=f"{AppConfig.VERSION} • Global Accept • Fast Min",
@@ -214,6 +238,12 @@ class AntiFateApp(ctk.CTk):
             saved_sound = True
         self.reset_sound_enabled_var.set(saved_sound)
 
+        # Load Startup Settings
+        saved_startup = config_manager.get("auto_startup_enabled")
+        if saved_startup is None:
+            saved_startup = False
+        self.auto_startup_enabled_var.set(saved_startup)
+
         # Apply settings immediately
         self.toggle_dimmer(save=False)
 
@@ -221,6 +251,12 @@ class AntiFateApp(ctk.CTk):
         is_enabled = self.reset_sound_enabled_var.get()
         config_manager.set("reset_sound_enabled", is_enabled)
         logger.info(f"Sound alert toggled: {is_enabled}")
+
+    def toggle_startup(self) -> None:
+        is_enabled = self.auto_startup_enabled_var.get()
+        config_manager.set("auto_startup_enabled", is_enabled)
+        set_autostart(AppConfig.APP_NAME, add=is_enabled)
+        logger.info(f"Auto Startup toggled: {is_enabled}")
 
     def toggle_dimmer(self, save: bool = True) -> None:
         is_enabled = self.dimmer_enabled_var.get()
@@ -279,6 +315,12 @@ class AntiFateApp(ctk.CTk):
 
         self.after(0, _update_ui)
 
+    def reset_dimmer(self) -> None:
+        """Force reset dimmer to 100% (Success callback)."""
+        logger.info("Bot success confirmed. Resetting dimmer to 100%.")
+        self.after(0, lambda: self.dimmer_slider.set(100))
+        self.after(0, lambda: self.dimmer.set_brightness(100))
+
     def start_bot(self) -> None:
         logger.info("Starting bot...")
         try:
@@ -294,7 +336,9 @@ class AntiFateApp(ctk.CTk):
         self.reset_time_entry.configure(state="disabled")
 
         self.bot = AntiFateBot(
-            update_status_callback=self.update_status, on_stop_callback=self.on_bot_stop
+            update_status_callback=self.update_status,
+            on_stop_callback=self.on_bot_stop,
+            on_success_callback=self.reset_dimmer,
         )
         self.bot.start()
 
