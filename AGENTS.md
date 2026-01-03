@@ -1,6 +1,6 @@
 # autoresetlol - Agent Knowledge Base & Rules
 
-**Generated:** 2026-01-03T17:30:00Z
+**Generated:** 2026-01-04T01:45:00Z
 **Branch:** main
 
 ## OVERVIEW 🤖
@@ -54,11 +54,29 @@ autoresetlol/
 - **Stealth is Life:** TUYỆT ĐỐI không dùng Win32 API để ghi vào bộ nhớ game. Chỉ được ĐỌC PIXEL. Con bot phải hoạt động như một "người chơi mù" chỉ biết nhìn màn hình.
 - **Human Delay:** Giữa các lệnh click (Cancel -> Find Match), PHẢI nghỉ ít nhất `0.5s - 1.0s`. Client LoL cần thời gian để phản hồi.
 
-### 3. Technical Mechanics
+### 3. Technical Mechanics (The Backbone) 🦴
 - **Polling Rate:** 1 giây/lần.
 - **Auto-Minimize:** Sau khi Reset hàng chờ, bot PHẢI click nút Minimize của Client (nếu có tọa độ).
 - **Brightness Safety:** Dimmer PHẢI được kẹp (clamped) trong khoảng `1-100%`. Tuyệt đối không để user chỉnh về `0%`.
 - **Portable Integrity:** Config (`config.json`) và Log (`*.log`) PHẢI được lưu cạnh file thực thi (.exe) khi chạy bản build. KHÔNG lưu trong thư mục tạm `_MEIPASS`.
+- **Startup Logic:** Registry entry PHẢI luôn trỏ đúng vào file thực thi hiện tại. Tên Registry key mặc định là `"Anti-Fate Engine"`.
+
+## CORE UNCHANGEABLE PROTOCOLS 📋
+
+### 1. Feature Guard (Chống Hỏng Chức Năng Cũ)
+Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 4 trụ cột này:
+1. **Giant Timer UI**: Bộ đếm số (?/?) phải là trọng tâm, to rõ nhất.
+2. **Persistence**: Đổi giá trị Reset Threshold, tắt đi bật lại xem có giữ nguyên không.
+3. **Audio Volume**: Thanh trượt volume phải thực sự điều chỉnh được âm thanh thông báo.
+4. **Dimmer Control**: Chức năng làm tối màn hình phải hoạt động và reset về 100% khi thoát.
+
+### 2. Landing the Plane Protocol
+Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
+1. **Cleanup**: Xóa mọi file rác, legacy registry (nếu có sự thay đổi về tên/version).
+2. **Build**: Tạo file `.spec` mới và build `.exe`.
+3. **Verify**: Chạy bản build, kiểm tra 4 trụ cột ở mục 1.
+4. **Document**: Note lại vào chính file `AGENTS.md` này nếu có logic nào mới cần bảo vệ.
+5. **Ship**: `git push`, `bd sync`, và tạo GitHub Release.
 
 ## ANTI-PATTERNS
 - **Focus Stealing:** Never call `force_focus_window` when `is_game_running()` detects the game client.

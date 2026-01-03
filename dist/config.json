@@ -39,10 +39,10 @@
         108
     ],
     "reset_time": 10,
-    "dimmer_value": 99,
+    "dimmer_value": 71,
     "dimmer_enabled": true,
     "reset_sound_enabled": true,
-    "sound_volume": 50,
+    "sound_volume": 14,
     "auto_startup_enabled": true,
-    "window_geometry": "360x540"
+    "window_geometry": "403x636+650+220"
 }

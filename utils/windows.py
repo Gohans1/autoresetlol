@@ -147,6 +147,16 @@ def set_autostart(app_name: str, add: bool = True) -> bool:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS
         ) as key:
+            # Cleanup legacy names to avoid duplicates in Startup tab
+            legacy_names = ["antifate_7.14", "AntiFateEngine"]
+            for legacy in legacy_names:
+                try:
+                    if legacy != app_name:
+                        winreg.DeleteValue(key, legacy)
+                        logger.info(f"Cleaned up legacy startup entry: {legacy}")
+                except FileNotFoundError:
+                    pass
+
             if add:
                 winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, current_path)
                 logger.info(f"Added {app_name} to Startup: {current_path}")
