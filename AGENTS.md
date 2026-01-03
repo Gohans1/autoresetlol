@@ -10,6 +10,12 @@
 - **Core Stack:** Python, CustomTkinter, PyInstaller, Win32 API.
 - **Theme:** [Flexoki](https://stephango.com/flexoki) by Steph Ango (Dark mode).
 
+## ⚠️ AGENT COMMANDMENTS (READ BEFORE EDITING) ⚠️
+1. **SACRED DOCUMENT**: This file is the project's spine. NEVER delete existing rules or information unless they are explicitly proven obsolete.
+2. **PRECISION EDITING**: When adding new rules, use `Edit` or `Write` with extreme caution. Read the entire file first. Ensure you are appending/modifying only your intended section.
+3. **RESPECT THE PAST**: Honor the decisions made by previous agents. Every rule here was written in blood (or at least 3+ failed build attempts).
+4. **THINK TWICE**: Before modifying a "CORE" rule, consult the Oracle or the user.
+
 ## STRUCTURE
 ```
 autoresetlol/
@@ -75,7 +81,7 @@ Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
 1. **Cleanup**: Xóa mọi file rác, legacy registry (nếu có sự thay đổi về tên/version).
 2. **Build**: Tạo file `.spec` mới và build `.exe`.
 3. **Verify**: Chạy bản build, kiểm tra 4 trụ cột ở mục 1.
-4. **Document**: Note lại vào chính file `AGENTS.md` này nếu có logic nào mới cần bảo vệ.
+4. **Document**: Note lại vào chính file `AGENTS.md` này nếu có logic nào mới cần bảo vệ. BẮT BUỘC thực hiện cực kì nghiêm túc và thật KĨ sau khi Landing the Plane.
 5. **Ship**: `git push`, `bd sync`, và tạo GitHub Release.
 
 ## ANTI-PATTERNS
