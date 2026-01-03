@@ -5,6 +5,8 @@ import pyautogui
 import time
 import threading
 from typing import Optional, Dict
+from PIL import Image, ImageTk, ImageDraw
+import os
 
 from config import config_manager
 from bot import AntiFateBot
@@ -39,6 +41,27 @@ class AntiFateApp(ctk.CTk):
         self.resizable(False, False)
         self.configure(fg_color=Colors.BG)
 
+        # Animation state
+        self.pulse_val = 0.0
+        self.pulse_dir = 1
+        self.pulse_speed = 0.05
+        self.current_state_color = Colors.STATUS_GRAY
+        self.is_animating = True
+
+        # Set Window Icon
+        try:
+            # For Taskbar and Titlebar
+            if os.path.exists(AppConfig.APP_ICON):
+                self.iconbitmap(AppConfig.APP_ICON)
+
+                # Use AppID to force Windows to show the correct icon on the taskbar
+                import ctypes
+
+                myappid = "sisyphus.autoresetlol.antifate.v7"
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception as e:
+            logger.error(f"Could not set window icon: {e}")
+
         self.bot: Optional[AntiFateBot] = None
         self.dimmer = GammaController()
 
@@ -49,28 +72,160 @@ class AntiFateApp(ctk.CTk):
         self.reset_sound_enabled_var = ctk.BooleanVar(value=True)
         self.auto_startup_enabled_var = ctk.BooleanVar(value=False)
 
+        self._setup_icons()
         self.create_widgets()
         self.load_settings()
 
         # Handle Window Close to reset gamma
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def _setup_icons(self) -> None:
+        """Initialize all state icons using PIL and Load Avatar."""
+        self.icons = {}
+        icon_colors = {
+            "gray": Colors.MUTED_FG,
+            "blue": Colors.BLUE,
+            "green": Colors.GREEN,
+            "purple": Colors.PURPLE,
+            "red": Colors.RED,
+            "orange": Colors.ORANGE,
+        }
+
+        # Load Avatar for the heartbeat base
+        try:
+            avatar_img = Image.open(AppConfig.APP_AVATAR).convert("RGBA")
+            # Create a circular mask for the avatar
+            mask = Image.new("L", avatar_img.size, 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0) + avatar_img.size, fill=255)
+
+            # Apply mask
+            circular_avatar = Image.new("RGBA", avatar_img.size, (0, 0, 0, 0))
+            circular_avatar.paste(avatar_img, (0, 0), mask=mask)
+            self.avatar_base = circular_avatar
+        except Exception as e:
+            logger.error(f"Could not load avatar: {e}")
+            self.avatar_base = Image.new("RGBA", (100, 100), Colors.SECONDARY)
+
+        for name, color in icon_colors.items():
+            # Create a 64x64 image for the status display
+            size = 64
+            img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+
+            # Draw glow/aura
+            padding = 4
+            draw.ellipse(
+                [padding, padding, size - padding - 1, size - padding - 1],
+                outline=color,
+                width=2,
+            )
+
+            # Draw symbol in center
+            center = size // 2
+            s = 10
+            if name == "green":
+                draw.line(
+                    [center - s, center, center - 2, center + s - 4],
+                    fill="white",
+                    width=4,
+                )
+                draw.line(
+                    [center - 2, center + s - 4, center + s, center - s + 2],
+                    fill="white",
+                    width=4,
+                )
+            elif name == "blue":
+                draw.arc(
+                    [center - s, center - s, center + s, center + s],
+                    start=45,
+                    end=315,
+                    fill="white",
+                    width=4,
+                )
+            elif name == "purple":
+                draw.ellipse(
+                    [center - s, center - s, center + s, center + s],
+                    outline="white",
+                    width=3,
+                )
+                draw.line(
+                    [center, center, center, center - s + 2], fill="white", width=2
+                )
+                draw.line(
+                    [center, center, center + s - 4, center], fill="white", width=2
+                )
+            elif name == "red" or name == "orange":
+                draw.line(
+                    [center, center - s, center, center + 2], fill="white", width=4
+                )
+                draw.ellipse(
+                    [center - 2, center + s - 2, center + 2, center + s + 2],
+                    fill="white",
+                )
+
+                draw.ellipse(
+                    [center - 2, center + s - 2, center + 2, center + s + 2],
+                    fill="white",
+                )
+            elif name == "gray":
+                draw.ellipse(
+                    [center - 4, center - 4, center + 4, center + 4], fill="white"
+                )
+
+            self.icons[name] = ctk.CTkImage(
+                light_image=img, dark_image=img, size=(64, 64)
+            )
+
     def create_widgets(self) -> None:
-        # Main Layout: Use a scrollable or fixed container with padding
+        # Main Layout
         main_container = ctk.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # 1. Status Card
-        status_card = CardFrame(main_container)
-        status_card.pack(fill="x", pady=(0, 15))
+        # 1. Status Heartbeat Card
+        self.status_card = CardFrame(main_container)
+        self.status_card.pack(fill="x", pady=(0, 15))
+
+        # Avatar Container with Pulse
+        self.avatar_frame = ctk.CTkFrame(
+            self.status_card, fg_color="transparent", width=80, height=80
+        )
+        self.avatar_frame.pack(pady=(20, 0))
+        self.avatar_frame.pack_propagate(False)
+
+        # Load resized avatar for the UI
+        display_avatar = ctk.CTkImage(self.avatar_base, size=(64, 64))
+        self.avatar_label = ctk.CTkLabel(
+            self.avatar_frame, text="", image=display_avatar
+        )
+        self.avatar_label.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Overlay Icon (Dynamic)
+        self.status_icon = ctk.CTkLabel(
+            self.avatar_frame, text="", image=self.icons["gray"]
+        )
+        self.status_icon.place(relx=0.5, rely=0.5, anchor="center")
 
         self.status_label = ctk.CTkLabel(
-            status_card,
+            self.status_card,
             text=UIStatus.READY,
             font=(AppConfig.FONT_FAMILY, 14, "bold"),
             text_color=Colors.MUTED_FG,
         )
-        self.status_label.pack(pady=15)
+        self.status_label.pack(pady=(5, 10))
+
+        # Dynamic Progress Bar (for SEARCHING state)
+        self.status_progress = ctk.CTkProgressBar(
+            self.status_card,
+            height=4,
+            fg_color=Colors.SECONDARY,
+            progress_color=Colors.BLUE,
+        )
+        self.status_progress.set(0)
+        self.status_progress.pack(fill="x", padx=30, pady=(0, 20))
+
+        # Start animation
+        self.animate_heartbeat()
 
         # 2. Settings Card
         settings_card = CardFrame(main_container)
@@ -315,6 +470,37 @@ class AntiFateApp(ctk.CTk):
             self.dimmer.set_brightness(int(value))
             config_manager.set("dimmer_value", int(value))
 
+    def animate_heartbeat(self) -> None:
+        """Dynamic pulsing animation for the status card."""
+        if not self.is_animating:
+            return
+
+        # Update pulse value
+        self.pulse_val += self.pulse_speed * self.pulse_dir
+        if self.pulse_val >= 1.0:
+            self.pulse_val = 1.0
+            self.pulse_dir = -1
+        elif self.pulse_val <= 0.0:
+            self.pulse_val = 0.0
+            self.pulse_dir = 1
+
+        # Apply pulse to border color and shadow effect
+        alpha = int(25 + (self.pulse_val * 50))  # Range 25-75 for subtle pulse
+
+        # We can't easily do hex alpha in CTk border_color without issues on some platforms,
+        # but we can alternate between the status color and a muted version.
+        try:
+            # Simple pulsing logic: interpolate between status color and BG
+            # For simplicity in this env, we'll just toggle border width or a slightly different color
+            if self.pulse_dir == 1:
+                self.status_card.configure(border_color=self.current_state_color)
+            else:
+                self.status_card.configure(border_color=Colors.BORDER)
+        except:
+            pass
+
+        self.after(50, self.animate_heartbeat)
+
     def update_status(self, text: str, color: Optional[str] = None) -> None:
         # Map logical colors to constants
         color_map: Dict[str, str] = {
@@ -323,13 +509,47 @@ class AntiFateApp(ctk.CTk):
             "blue": Colors.STATUS_BLUE,
             "orange": Colors.STATUS_ORANGE,
             "gray": Colors.STATUS_GRAY,
-            "purple": Colors.PURPLE,  # Updated
+            "purple": Colors.PURPLE,
         }
-        final_color = color_map.get(str(color).lower(), Colors.STATUS_GRAY)
+        color_str = str(color).lower()
+        final_color = color_map.get(color_str, Colors.STATUS_GRAY)
+        icon_key = color_str if color_str in self.icons else "gray"
+
+        self.current_state_color = final_color
+
+        # Adjust animation speed based on state
+        if color_str == "blue":  # Searching
+            self.pulse_speed = 0.04
+        elif color_str == "purple":  # Verifying
+            self.pulse_speed = 0.1
+        elif color_str == "red":  # Resetting/Dodge
+            self.pulse_speed = 0.15
+        elif color_str == "green":  # Match Found / Standby
+            self.pulse_speed = 0.02
+        else:
+            self.pulse_speed = 0.02
+
+        # Parse progress if searching
+        progress = 0.0
+        if "Searching" in text:
+            try:
+                # Extract (elapsed/threshold)
+                parts = text.split("(")[1].split(")")[0].split("/")
+                current = int(parts[0])
+                total = int(parts[1])
+                progress = min(1.0, current / total)
+            except:
+                progress = 0
 
         # Thread-safe update
         self.after(
-            0, lambda: self.status_label.configure(text=text, text_color=final_color)
+            0,
+            lambda: [
+                self.status_label.configure(text=text, text_color=final_color),
+                self.status_icon.configure(image=self.icons[icon_key]),
+                self.status_progress.set(progress),
+                self.status_progress.configure(progress_color=final_color),
+            ],
         )
 
     def on_bot_stop(self, status: str, color: str) -> None:
@@ -357,7 +577,7 @@ class AntiFateApp(ctk.CTk):
             messagebox.showerror("Error", "Invalid Reset Time! Must be an integer.")
             return
 
-        self.update_status("Status: Running...", "green")
+        self.update_status("Status: Running...", "blue")
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.reset_time_entry.configure(state="disabled")
@@ -367,7 +587,8 @@ class AntiFateApp(ctk.CTk):
             on_stop_callback=self.on_bot_stop,
             on_success_callback=self.reset_dimmer,
         )
-        self.bot.start()
+        if self.bot:
+            self.bot.start()
 
     def stop_bot(self) -> None:
         logger.info("Bot Stopping...")
@@ -378,6 +599,7 @@ class AntiFateApp(ctk.CTk):
     def on_closing(self) -> None:
         """Cleanup before closing"""
         logger.info("Closing application...")
+        self.is_animating = False
         try:
             if self.bot:
                 # Disable callback to avoid updating destroyed widgets

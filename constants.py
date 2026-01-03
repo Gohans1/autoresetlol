@@ -4,27 +4,35 @@ import os
 import sys
 
 
-def get_base_dir() -> str:
-    """Returns the base directory of the application."""
+def get_resource_dir() -> str:
+    """Returns the base directory for bundled resources."""
     if getattr(sys, "frozen", False):
-        # Running as a compiled executable
-        return os.path.dirname(sys.executable)
-    # Running as a script
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 
-BASE_DIR = get_base_dir()
+def get_config_dir() -> str:
+    """Returns the directory for persistent configuration."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+RESOURCE_DIR = get_resource_dir()
+CONFIG_DIR = get_config_dir()
 
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v1.0"
-    GEOMETRY: str = "360x520"  # Slightly larger for cards and whitespace
+    VERSION: str = "v1.01"  # Reset to v1.01 based on new rules
+    GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
-    CONFIG_FILE: str = os.path.join(BASE_DIR, "config.json")
-    LOG_FILE: str = os.path.join(BASE_DIR, "autoresetlol.log")
-    NOTIFY_SOUND: str = os.path.join(BASE_DIR, "assets", "notify.mp3")
+    CONFIG_FILE: str = os.path.join(CONFIG_DIR, "config.json")
+    LOG_FILE: str = os.path.join(CONFIG_DIR, "autoresetlol.log")
+    NOTIFY_SOUND: str = os.path.join(RESOURCE_DIR, "assets", "notify.mp3")
+    APP_ICON: str = os.path.join(RESOURCE_DIR, "assets", "avatar.ico")
+    APP_AVATAR: str = os.path.join(RESOURCE_DIR, "assets", "avatar.png")
     VERIFY_TIMEOUT: int = 25
     FONT_FAMILY: str = "Inter"
 

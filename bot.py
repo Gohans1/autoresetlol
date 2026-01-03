@@ -141,7 +141,7 @@ class AntiFateBot(threading.Thread):
 
         # 2. Check Timer & Reset
         self.update_status_callback(
-            UIStatus.SEARCHING.format(elapsed, reset_threshold), "orange"
+            UIStatus.SEARCHING.format(elapsed, reset_threshold), "blue"
         )
 
         if elapsed >= reset_threshold:
@@ -281,11 +281,11 @@ class AntiFateBot(threading.Thread):
                 self.state = BotState.SEARCHING
             else:
                 logger.info("False alarm.")
-                self.update_status_callback(UIStatus.STANDBY, "gray")
+                self.update_status_callback(UIStatus.STANDBY, "green")
         else:
-            self.update_status_callback(UIStatus.STANDBY, "gray")
+            self.update_status_callback(UIStatus.STANDBY, "green")
 
     def stop(self, found: bool = False) -> None:
         self.running = False
         if self.on_stop_callback:
-            self.on_stop_callback(UIStatus.STOPPED, "red")
+            self.on_stop_callback(UIStatus.STOPPED, "gray")

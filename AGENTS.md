@@ -1,72 +1,86 @@
 # autoresetlol - Agent Knowledge Base & Rules
 
+**Generated:** 2026-01-03T17:30:00Z
+**Branch:** main
+
 ## OVERVIEW 🤖
-**autoresetlol** (AntiFateEngine) is a League of Legends automation tool (v7.14) designed to solve "queue anxiety" by automatically resetting the matchmaking queue after a set threshold and auto-accepting matches.
+**autoresetlol** (AntiFateEngine) is a League of Legends automation tool designed to solve "queue anxiety" by automatically resetting the matchmaking queue after a set threshold and auto-accepting matches.
 
 - **Primary Goal:** Prevent getting stuck in long queues and ensure match acceptance without manual monitoring.
-- **Version:** v7.14 (Current Stable)
-- **Status:** Active Development
+- **Core Stack:** Python, CustomTkinter, PyInstaller, Win32 API.
+- **Theme:** [Flexoki](https://stephango.com/flexoki) by Steph Ango (Dark mode).
 
----
+## STRUCTURE
+```
+autoresetlol/
+├── utils/           # OS-level integration (Gamma, Registry, Windows)
+├── assets/          # Notification sounds and icons
+├── dist/            # Compiled binaries and release artifacts
+├── build/           # PyInstaller build cache
+├── bot.py           # Core automation engine logic
+├── gui.py           # User interface and configuration management
+├── main.py          # Application entry point
+└── config.py        # Configuration persistence (Singleton)
+```
+
+## WHERE TO LOOK
+| Task | Location | Notes |
+|------|----------|-------|
+| UI Changes | `gui.py` | Uses CustomTkinter with Flexoki theme |
+| Logic Updates | `bot.py` | State machine: SEARCHING, VERIFYING, STANDBY |
+| Win32/System | `utils/windows.py` | Low-level display and window handling |
+| Build Config | `*.spec` | PyInstaller build definitions |
+
+## CODE MAP
+| Symbol | Type | Location | Role |
+|--------|------|----------|------|
+| `AntiFateBot` | Class | `bot.py` | Threaded worker managing bot lifecycle and pixel detection |
+| `AntiFateApp` | Class | `gui.py` | Main UI application class |
+| `BotConfig` | Dataclass | `config.py` | Typed configuration structure |
+| `GammaController` | Class | `utils/windows.py` | Hardware-level screen dimming management |
+| `set_autostart` | Function | `utils/windows.py` | Windows Registry-based startup logic |
 
 ## CORE UNBREAKABLE RULES 🛡️
 
 ### 1. Environment & Package Manager
 - **Package Manager:** BẮT BUỘC dùng `uv` cho mọi thao tác cài đặt/chạy lệnh (`uv pip install`, `uv run`...). KHÔNG dùng pip trần.
-- **Build Process:** LUÔN LUÔN build sau khi sửa đổi bằng PyInstaller qua `uv`. Tạo version mới (`v7.x`), KHÔNG ghi đè bản cũ.
+- **Versioning:** Phiên bản bắt đầu từ `1.0`. Khi có thay đổi, LUÔN LUÔN tăng 1 version nhỏ (ví dụ: `1.0` -> `1.01`, `1.01` -> `1.02`). KHÔNG dùng version 7.x hay lộn xộn khác.
+- **Build Process:** LUÔN LUÔN build sau khi sửa đổi bằng PyInstaller qua `uv`. Code xong là phải build ngay. Tạo spec file và binary theo đúng version mới.
 
 ### 2. Bot Logic & Game Detection
 - **Game Sensitivity:** Bot TUYỆT ĐỐI KHÔNG ĐƯỢC chiếm quyền focus (nhảy taskbar) khi người chơi đang **In-Game**.
-- **Detection Method:** Dựa vào Window Title:
-    - `"League of Legends"` -> Lobby/Client (Được phép Focus).
-    - `"League of Legends (TM) Client"` -> In-Game Fullscreen (**CẤM Focus**).
-- **Global Accept:** Logic nút Accept phải hoạt động ngay cả khi window không ở foreground (Global pixel matching).
+- **Detection Method:** Dựa vào Window Title: `"League of Legends"` (Lobby) vs `"League of Legends (TM) Client"` (In-Game).
+- **Logic "Bất Tử":** Bot PHẢI kiểm tra pixel Chọn Tướng trong MỌI trạng thái. Nếu phát hiện Chọn Tướng, PHẢI nhảy sang `STANDBY` ngay lập tức.
+- **Stealth is Life:** TUYỆT ĐỐI không dùng Win32 API để ghi vào bộ nhớ game. Chỉ được ĐỌC PIXEL. Con bot phải hoạt động như một "người chơi mù" chỉ biết nhìn màn hình.
+- **Human Delay:** Giữa các lệnh click (Cancel -> Find Match), PHẢI nghỉ ít nhất `0.5s - 1.0s`. Client LoL cần thời gian để phản hồi.
 
 ### 3. Technical Mechanics
 - **Polling Rate:** 1 giây/lần.
-- **Auto-Minimize:** Sau khi Reset hàng chờ, bot PHẢI click nút Minimize của Client nếu đã có tọa độ trong config để trả lại không gian cho người dùng.
-- **Brightness Safety:** Dimmer PHẢI được kẹp (clamped) trong khoảng `1-100%`. Tuyệt đối không để user chỉnh về `0%` (gây đen màn hình).
+- **Auto-Minimize:** Sau khi Reset hàng chờ, bot PHẢI click nút Minimize của Client (nếu có tọa độ).
+- **Brightness Safety:** Dimmer PHẢI được kẹp (clamped) trong khoảng `1-100%`. Tuyệt đối không để user chỉnh về `0%`.
+- **Portable Integrity:** Config (`config.json`) và Log (`*.log`) PHẢI được lưu cạnh file thực thi (.exe) khi chạy bản build. KHÔNG lưu trong thư mục tạm `_MEIPASS`.
 
-### 4. Code Architecture & Logic
-- **Separation of Concerns:** Logic bot (`bot.py`) tách biệt hoàn toàn với UI (`gui.py`).
-- **Logic "Bất Tử":** Bot PHẢI kiểm tra pixel Chọn Tướng trong MỌI trạng thái (đặc biệt là khi đang đếm ngược reset 90s). Nếu phát hiện Chọn Tướng, PHẢI nhảy sang `STANDBY` ngay lập tức.
-- **Manual Support:** Bot PHẢI hỗ trợ việc người dùng bấm Accept bằng tay.
-- **Success UI Reset:** Khi xác nhận vào Chọn Tướng thành công, bot PHẢI reset Gamma Dimmer về 100% để đảm bảo tầm nhìn cho người dùng.
-
-### 5. Notifications & Integration
-- **Sound Alert:** Bot plays a 'ting' sound (`winsound.MB_ICONASTERISK`) exactly 1.5s before resetting the queue. This is toggleable via `config.json`.
-- **Auto Startup:** Registry-based (`HKCU\...\Run`). Handles both `.py` (via python exe) and `.exe` (via `sys.frozen`) with proper path quoting.
-
----
-
-## STRUCTURE & CODE MAP 🗺️
-
-### Core Components
-- **`main.py`**: Entry point. Initializes the GUI application.
-- **`AntiFateBot` (`bot.py`)**: The engine. A threaded worker managing states: `SEARCHING`, `VERIFYING`, `STANDBY`.
-- **`AntiFateApp` (`gui.py`)**: The UI. Built with `customtkinter`. Manages user interactions and bot lifecycle.
-- **`ConfigManager` (`config.py`)**: Singleton handler for `config.json`. Uses `BotConfig` dataclass for type safety.
-- **`GammaController` (`utils/windows.py`)**: Low-level Windows GDI32 integration for screen dimming.
-
-### Utils & Helpers
-- **`windows.py`**: Window handling (Focus, Title detection) and Registry-based Auto-Startup logic.
-- **`constants.py`**: Centralized pixel coordinates, colors, and string constants.
-- **`logger.py`**: Configured logging to both file (`autoresetlol.log`) and console.
-
----
-
-## PROJECT CONVENTIONS 📝
-
-- **Memory:** LUÔN LUÔN áp dụng hệ thống beads (bd) để đồng bộ trí nhớ giữa các phiên làm việc.
-- **Config Safety:** CẤM GHI ĐÈ LÊN `config.json` trong folder `dist` vì chứa tọa độ hardcode.
-
----
+## ANTI-PATTERNS
+- **Focus Stealing:** Never call `force_focus_window` when `is_game_running()` detects the game client.
+- **Direct config.json Edit:** Never overwrite `config.json` in `dist/` as it contains hardcoded production coordinates.
+- **Gamma Mismanagement:** Never leave gamma at <100% on app exit or when entering champion select.
 
 ## COMMANDS ⚡
+```bash
+# Run Dev
+uv run python main.py
 
-| Task | Command |
-| :--- | :--- |
-| **Run Dev** | `uv run python main.py` |
-| **Install Deps** | `uv pip install -r pyproject.toml` |
-| **Build v7.14** | `uv run pyinstaller AntiFateEngine_v7.14.spec` |
-| **Clean Build** | `rm -rf build/ dist/*.exe` |
+# Install Deps
+uv pip install -r pyproject.toml
+
+# Build (Example for v1.01)
+uv run pyinstaller AntiFateEngine_v1.01.spec
+
+# Release (MANDATORY)
+gh release create v1.01 dist/AntiFateEngine_v1.01.exe --title "Release v1.01" --notes "Update description"
+```
+
+## NOTES
+- **Landing the Plane:** Khi kết thúc task, LUÔN LUÔN `git push`, `bd sync` và tạo GitHub Release cho bản build mới nhất. Đéo phải hỏi.
+- **Flexoki Theme:** LUÔN LUÔN tuân thủ bảng màu Flexoki (Dark) trong mọi thay đổi UI.
+- **Beads:** Always use `bd` for cross-session memory synchronization.

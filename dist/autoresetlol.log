@@ -7976,3 +7976,304 @@
 2026-01-03 22:17:12,393 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
 2026-01-03 22:18:04,148 - AutoResetLoL - INFO - Closing application...
 2026-01-03 22:18:04,150 - AutoResetLoL - ERROR - Error during closing: argument 1: TypeError: 'NoneType' object cannot be interpreted as an integer
+2026-01-03 22:42:32,315 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 22:42:33,963 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,169 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,276 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,290 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,297 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,309 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,331 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,341 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,356 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,383 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,393 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,401 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,413 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,446 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,462 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,479 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,490 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,499 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,511 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,523 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,740 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,754 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,763 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,772 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,781 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,796 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,808 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,840 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,853 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,866 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,877 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,885 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,893 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,901 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,912 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,921 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:43,929 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,010 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,019 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,029 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,041 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,054 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,070 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,089 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,168 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,178 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,187 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,216 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,222 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,230 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,237 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,247 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,254 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,294 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,310 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,322 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,328 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,336 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,344 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,351 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,358 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,367 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,375 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,382 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,390 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,404 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,411 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,418 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,424 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,439 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,508 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,525 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,532 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,538 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,544 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,552 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,560 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,567 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,575 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,584 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,592 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,605 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,618 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,628 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:44,645 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,067 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,073 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,080 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,087 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,093 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,101 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,109 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,116 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,126 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,132 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,143 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,156 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,163 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,395 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,404 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,410 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,441 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,450 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,457 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,464 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,471 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,478 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,485 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,491 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,498 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,504 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,511 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,518 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,526 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,536 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,543 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,550 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:42:45,562 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,479 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,545 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,556 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,563 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,573 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,584 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,594 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,604 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,616 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,632 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,645 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,658 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,665 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,677 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,689 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,700 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,714 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,726 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,736 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,747 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,760 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,771 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,782 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,792 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,803 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,814 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,824 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,837 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,843 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,854 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,982 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,989 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:23,995 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,002 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,008 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,015 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,026 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,037 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,046 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,058 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,069 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,076 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,083 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,090 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,102 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,113 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,124 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,139 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,151 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,164 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,171 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,178 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,196 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,207 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,219 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,227 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,237 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,244 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,259 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,266 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,278 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,286 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,293 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,312 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,319 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,334 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,348 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,872 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 22:48:24,873 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:24,877 - AutoResetLoL - INFO - Bot started. Threshold: 90s
+2026-01-03 22:48:26,847 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 22:48:27,345 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 22:48:27,346 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 22:48:27,350 - AutoResetLoL - INFO - Bot started. Threshold: 90s
+2026-01-03 22:48:29,626 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:06:03,822 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:06:03,833 - AutoResetLoL - ERROR - Error during closing: argument 1: TypeError: 'NoneType' object cannot be interpreted as an integer
+2026-01-03 23:06:54,364 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:06:54,551 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:06:57,371 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:09:04,740 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:09:04,937 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:09:08,455 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:09:11,808 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:09:11,990 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:09:13,166 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:09:16,310 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:09:16,507 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:09:24,196 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:14:22,685 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:14:22,889 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:14:26,984 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:14:38,900 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:14:39,101 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:14:40,630 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:14:47,081 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:14:47,304 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:14:56,571 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:15:02,287 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:15:02,462 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:15:03,724 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:25:26,690 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:25:26,875 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:25:32,503 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:33:08,409 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:33:08,591 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:33:11,362 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:33:11,498 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:33:13,286 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:33:15,817 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:33:16,004 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:33:17,398 - AutoResetLoL - INFO - Closing application...
+2026-01-03 23:44:21,504 - AutoResetLoL - INFO - Initializing Application...
+2026-01-03 23:44:21,758 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:25,295 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:44:25,295 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:25,298 - AutoResetLoL - INFO - Bot started. Threshold: 33s
+2026-01-03 23:44:30,100 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:44:31,975 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:32,944 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:33,441 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:44:33,442 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:33,444 - AutoResetLoL - INFO - Bot started. Threshold: 3s
+2026-01-03 23:44:35,481 - AutoResetLoL - INFO - Playing pre-reset sound alert...
+2026-01-03 23:44:36,500 - AutoResetLoL - INFO - Threshold reached. Context checking...
+2026-01-03 23:44:36,503 - AutoResetLoL - INFO - Forcing focus to window handle: 526830
+2026-01-03 23:44:37,034 - AutoResetLoL - INFO - Queue pixel not found. Resetting timer.
+2026-01-03 23:44:39,051 - AutoResetLoL - INFO - Playing pre-reset sound alert...
+2026-01-03 23:44:40,069 - AutoResetLoL - INFO - Threshold reached. Context checking...
+2026-01-03 23:44:40,070 - AutoResetLoL - INFO - Forcing focus to window handle: 526830
+2026-01-03 23:44:40,585 - AutoResetLoL - INFO - Queue pixel not found. Resetting timer.
+2026-01-03 23:44:42,602 - AutoResetLoL - INFO - Playing pre-reset sound alert...
+2026-01-03 23:44:43,620 - AutoResetLoL - INFO - Threshold reached. Context checking...
+2026-01-03 23:44:43,624 - AutoResetLoL - INFO - Forcing focus to window handle: 526830
+2026-01-03 23:44:44,135 - AutoResetLoL - INFO - Queue pixel not found. Resetting timer.
+2026-01-03 23:44:46,154 - AutoResetLoL - INFO - Playing pre-reset sound alert...
+2026-01-03 23:44:47,173 - AutoResetLoL - INFO - Threshold reached. Context checking...
+2026-01-03 23:44:47,176 - AutoResetLoL - INFO - Forcing focus to window handle: 526830
+2026-01-03 23:44:47,693 - AutoResetLoL - INFO - Queue pixel not found. Resetting timer.
+2026-01-03 23:44:48,783 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:44:50,589 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:51,129 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:51,744 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:44:51,745 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:44:51,748 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:45:00,869 - AutoResetLoL - INFO - Playing pre-reset sound alert...
+2026-01-03 23:45:01,888 - AutoResetLoL - INFO - Threshold reached. Context checking...
+2026-01-03 23:45:01,890 - AutoResetLoL - INFO - Forcing focus to window handle: 526830
+2026-01-03 23:45:02,403 - AutoResetLoL - INFO - Queue pixel not found. Resetting timer.
+2026-01-03 23:45:08,649 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:45:18,231 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:45:18,232 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:45:18,234 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:45:19,019 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:45:19,610 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:45:19,611 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:45:19,614 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:45:20,383 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:45:24,787 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:45:24,787 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:45:24,790 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:45:31,567 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:45:36,292 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:45:36,293 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:45:36,296 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:45:45,414 - AutoResetLoL - INFO - Playing pre-reset sound alert...
+2026-01-03 23:45:46,432 - AutoResetLoL - INFO - Threshold reached. Context checking...
+2026-01-03 23:45:46,441 - AutoResetLoL - INFO - Forcing focus to window handle: 526830
+2026-01-03 23:45:46,954 - AutoResetLoL - INFO - Queue pixel not found. Resetting timer.
+2026-01-03 23:45:49,282 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:46:24,245 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:46:24,245 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:46:24,248 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:46:25,518 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:46:28,543 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:46:28,544 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:46:28,548 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:46:33,606 - AutoResetLoL - INFO - Bot Stopping...
+2026-01-03 23:50:22,232 - AutoResetLoL - INFO - Starting bot...
+2026-01-03 23:50:22,233 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
+2026-01-03 23:50:22,237 - AutoResetLoL - INFO - Bot started. Threshold: 10s
+2026-01-03 23:50:25,412 - AutoResetLoL - INFO - Bot Stopping...
