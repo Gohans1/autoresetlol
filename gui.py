@@ -17,6 +17,18 @@ ctk.set_appearance_mode(AppConfig.THEME_MODE)
 ctk.set_default_color_theme(AppConfig.THEME_COLOR)
 
 
+class CardFrame(ctk.CTkFrame):
+    def __init__(self, master, **kwargs):
+        super().__init__(
+            master,
+            fg_color=Colors.CARD,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=8,
+            **kwargs,
+        )
+
+
 class AntiFateApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -25,6 +37,7 @@ class AntiFateApp(ctk.CTk):
         self.title(AppConfig.APP_NAME)
         self.geometry(AppConfig.GEOMETRY)
         self.resizable(False, False)
+        self.configure(fg_color=Colors.BG)
 
         self.bot: Optional[AntiFateBot] = None
         self.dimmer = GammaController()
@@ -43,174 +56,186 @@ class AntiFateApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def create_widgets(self) -> None:
-        # Main Layout: Single column, centered with padding
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure((0, 1, 2, 3, 4, 5, 6), weight=1)
+        # Main Layout: Use a scrollable or fixed container with padding
+        main_container = ctk.CTkFrame(self, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # 1. Header / Status
+        # 1. Status Card
+        status_card = CardFrame(main_container)
+        status_card.pack(fill="x", pady=(0, 15))
+
         self.status_label = ctk.CTkLabel(
-            self,
+            status_card,
             text=UIStatus.READY,
-            font=("Inter", 14, "bold"),
-            text_color=Colors.ZINC_400,
+            font=(AppConfig.FONT_FAMILY, 14, "bold"),
+            text_color=Colors.MUTED_FG,
         )
-        self.status_label.pack(pady=(25, 10))
+        self.status_label.pack(pady=15)
 
-        # 2. Controls Frame (Timer + Pin)
-        controls_frame = ctk.CTkFrame(self, fg_color="transparent")
-        controls_frame.pack(pady=5)
+        # 2. Settings Card
+        settings_card = CardFrame(main_container)
+        settings_card.pack(fill="x", pady=(0, 15))
 
-        # Reset Timer
-        ctk.CTkLabel(
-            controls_frame,
-            text="Timer (s):",
-            font=("Inter", 12),
-            text_color=Colors.ZINC_200,
-        ).pack(side="left", padx=(0, 5))
-
-        self.reset_time_entry = ctk.CTkEntry(
-            controls_frame,
-            textvariable=self.reset_time_var,
-            width=50,
-            font=("Inter", 12),
-            fg_color=Colors.ZINC_900,
-            border_color=Colors.ZINC_700,
-            text_color=Colors.ZINC_50,
-            justify="center",
-        )
-        self.reset_time_entry.pack(side="left", padx=(0, 15))
-
-        # 3. Action Buttons (Start / Stop)
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(pady=15)
-
-        # Primary Button (Start)
-        self.start_btn = ctk.CTkButton(
-            btn_frame,
-            text="START",
-            font=("Inter", 12, "bold"),
-            width=100,
-            height=32,
-            fg_color=Colors.ZINC_50,
-            text_color=Colors.ZINC_900,
-            hover_color=Colors.ZINC_300,
-            corner_radius=6,
-            command=self.start_bot,
-        )
-        self.start_btn.pack(side="left", padx=5)
-
-        # Destructive Button (Stop)
-        self.stop_btn = ctk.CTkButton(
-            btn_frame,
-            text="STOP",
-            font=("Inter", 12, "bold"),
-            width=100,
-            height=32,
-            fg_color=Colors.RED_900,
-            text_color=Colors.RED_200,
-            hover_color=Colors.RED_800,
-            corner_radius=6,
-            state="disabled",
-            command=self.stop_bot,
-        )
-        self.stop_btn.pack(side="left", padx=5)
-
-        # 4. Ghost Dimmer Slider
-        dimmer_frame = ctk.CTkFrame(self, fg_color="transparent")
-        dimmer_frame.pack(pady=5, fill="x", padx=40)
-
-        # Dimmer Header Row
-        dimmer_header = ctk.CTkFrame(dimmer_frame, fg_color="transparent")
-        dimmer_header.pack(fill="x", pady=(0, 5))
+        # Timer Section
+        timer_row = ctk.CTkFrame(settings_card, fg_color="transparent")
+        timer_row.pack(fill="x", padx=15, pady=(15, 10))
 
         ctk.CTkLabel(
-            dimmer_header,
-            text="Ghost Dimmer",
-            font=("Inter", 12, "bold"),
-            text_color=Colors.ZINC_400,
+            timer_row,
+            text="Reset Threshold",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            text_color=Colors.FG,
         ).pack(side="left")
 
-        # Dimmer Toggle Switch
+        self.reset_time_entry = ctk.CTkEntry(
+            timer_row,
+            textvariable=self.reset_time_var,
+            width=60,
+            height=28,
+            font=(AppConfig.FONT_FAMILY, 12),
+            fg_color=Colors.SECONDARY,
+            border_color=Colors.BORDER,
+            text_color=Colors.PRIMARY,
+            justify="center",
+            corner_radius=4,
+        )
+        self.reset_time_entry.pack(side="right")
+
+        ctk.CTkLabel(
+            timer_row,
+            text="sec",
+            font=(AppConfig.FONT_FAMILY, 12),
+            text_color=Colors.MUTED_FG,
+        ).pack(side="right", padx=5)
+
+        # Separator (Subtle line)
+        ctk.CTkFrame(settings_card, fg_color=Colors.BORDER, height=1).pack(
+            fill="x", padx=15, pady=5
+        )
+
+        # Dimmer Control
+        dimmer_row = ctk.CTkFrame(settings_card, fg_color="transparent")
+        dimmer_row.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            dimmer_row,
+            text="Ghost Dimmer",
+            font=(AppConfig.FONT_FAMILY, 12),
+            text_color=Colors.FG,
+        ).pack(side="left")
+
         self.dimmer_switch = ctk.CTkSwitch(
-            dimmer_header,
+            dimmer_row,
             text="",
             width=40,
-            height=20,
             variable=self.dimmer_enabled_var,
             command=self.toggle_dimmer,
-            progress_color=Colors.EMERALD_400,
-            fg_color=Colors.ZINC_700,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
         )
         self.dimmer_switch.pack(side="right")
 
-        # The Slider
         self.dimmer_slider = ctk.CTkSlider(
-            dimmer_frame,
+            settings_card,
             from_=0,
             to=100,
             number_of_steps=100,
             command=self.change_brightness,
-            fg_color=Colors.ZINC_700,
-            progress_color=Colors.ZINC_200,
-            button_color=Colors.ZINC_50,
-            button_hover_color=Colors.ZINC_300,
+            fg_color=Colors.SECONDARY,
+            progress_color=Colors.PRIMARY,
+            button_color=Colors.PRIMARY,
+            button_hover_color=Colors.FG,
+            height=16,
         )
         self.dimmer_slider.set(100)
-        self.dimmer_slider.pack(fill="x", pady=5)
+        self.dimmer_slider.pack(fill="x", padx=15, pady=(0, 15))
 
-        # 5. Sound Alert Toggle
-        sound_frame = ctk.CTkFrame(self, fg_color="transparent")
-        sound_frame.pack(fill="x", padx=40, pady=5)
+        # 3. Preferences Card
+        pref_card = CardFrame(main_container)
+        pref_card.pack(fill="x", pady=(0, 15))
+
+        # Sound Toggle
+        sound_row = ctk.CTkFrame(pref_card, fg_color="transparent")
+        sound_row.pack(fill="x", padx=15, pady=(12, 6))
 
         ctk.CTkLabel(
-            sound_frame,
-            text="Sound Alert (1.5s)",
-            font=("Inter", 12, "bold"),
-            text_color=Colors.ZINC_400,
+            sound_row,
+            text="Sound Notification",
+            font=(AppConfig.FONT_FAMILY, 12),
+            text_color=Colors.FG,
         ).pack(side="left")
 
         self.sound_switch = ctk.CTkSwitch(
-            sound_frame,
+            sound_row,
             text="",
             width=40,
-            height=20,
             variable=self.reset_sound_enabled_var,
             command=self.toggle_sound,
-            progress_color=Colors.EMERALD_400,
-            fg_color=Colors.ZINC_700,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
         )
         self.sound_switch.pack(side="right")
 
-        # 6. Auto Startup Toggle
-        startup_frame = ctk.CTkFrame(self, fg_color="transparent")
-        startup_frame.pack(fill="x", padx=40, pady=5)
+        # Startup Toggle
+        startup_row = ctk.CTkFrame(pref_card, fg_color="transparent")
+        startup_row.pack(fill="x", padx=15, pady=(6, 12))
 
         ctk.CTkLabel(
-            startup_frame,
-            text="Auto Startup",
-            font=("Inter", 12, "bold"),
-            text_color=Colors.ZINC_400,
+            startup_row,
+            text="Launch on Startup",
+            font=(AppConfig.FONT_FAMILY, 12),
+            text_color=Colors.FG,
         ).pack(side="left")
 
         self.startup_switch = ctk.CTkSwitch(
-            startup_frame,
+            startup_row,
             text="",
             width=40,
-            height=20,
             variable=self.auto_startup_enabled_var,
             command=self.toggle_startup,
-            progress_color=Colors.EMERALD_400,
-            fg_color=Colors.ZINC_700,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
         )
         self.startup_switch.pack(side="right")
 
-        # 7. Footer
+        # 4. Action Buttons
+        btn_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        btn_frame.pack(fill="x", side="bottom")
+
+        self.start_btn = ctk.CTkButton(
+            btn_frame,
+            text="START BOT",
+            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            height=40,
+            fg_color=Colors.PRIMARY,
+            text_color=Colors.PRIMARY_FG,
+            hover_color=Colors.FG,
+            corner_radius=8,
+            command=self.start_bot,
+        )
+        self.start_btn.pack(fill="x", pady=(0, 10))
+
+        self.stop_btn = ctk.CTkButton(
+            btn_frame,
+            text="STOP",
+            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            height=40,
+            fg_color=Colors.RED,
+            text_color=Colors.PRIMARY_FG,
+            hover_color="#e57373",  # Brighter red on hover
+            corner_radius=8,
+            state="disabled",
+            command=self.stop_bot,
+        )
+        self.stop_btn.pack(fill="x")
+
+        # 5. Footer
         ctk.CTkLabel(
             self,
-            text=f"{AppConfig.VERSION} • Global Accept • Fast Min",
-            font=("Inter", 10),
-            text_color=Colors.ZINC_600,
-        ).pack(side="bottom", pady=10)
+            text=f"{AppConfig.VERSION} • Anti-Fate Engine",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(side="bottom", pady=5)
 
     def _on_time_changed(self, var, index, mode) -> None:
         """Auto-save reset time when user types."""
@@ -266,7 +291,7 @@ class AntiFateApp(ctk.CTk):
             config_manager.set("dimmer_enabled", is_enabled)
 
         if is_enabled:
-            self.dimmer_slider.configure(state="normal", button_color=Colors.ZINC_50)
+            self.dimmer_slider.configure(state="normal", button_color=Colors.PRIMARY)
 
             # Smooth Step Down
             if current_val < 90:
@@ -279,7 +304,9 @@ class AntiFateApp(ctk.CTk):
             # Final set
             self.dimmer.set_brightness(int(current_val))
         else:
-            self.dimmer_slider.configure(state="disabled", button_color=Colors.ZINC_700)
+            self.dimmer_slider.configure(
+                state="disabled", button_color=Colors.SECONDARY
+            )
             self.dimmer.set_brightness(100)
 
     def change_brightness(self, value: float) -> None:
@@ -296,7 +323,7 @@ class AntiFateApp(ctk.CTk):
             "blue": Colors.STATUS_BLUE,
             "orange": Colors.STATUS_ORANGE,
             "gray": Colors.STATUS_GRAY,
-            "purple": Colors.ROSE_400,  # Fallback/Custom
+            "purple": Colors.PURPLE,  # Updated
         }
         final_color = color_map.get(str(color).lower(), Colors.STATUS_GRAY)
 

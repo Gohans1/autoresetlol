@@ -39,7 +39,7 @@
         108
     ],
     "reset_time": 90,
-    "dimmer_value": 66,
+    "dimmer_value": 30,
     "dimmer_enabled": true,
     "reset_sound_enabled": true,
     "auto_startup_enabled": true

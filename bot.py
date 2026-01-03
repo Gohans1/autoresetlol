@@ -2,6 +2,7 @@ import threading
 import time
 import winsound
 import pyautogui
+from playsound import playsound
 from enum import Enum, auto
 from typing import Callable, Optional, Tuple
 
@@ -111,10 +112,15 @@ class AntiFateBot(threading.Thread):
             if elapsed_float >= (reset_threshold - 1.5):
                 logger.info("Playing pre-reset sound alert...")
                 self.sound_played = True
-                threading.Thread(
-                    target=lambda: winsound.MessageBeep(winsound.MB_ICONASTERISK),
-                    daemon=True,
-                ).start()
+
+                def _play():
+                    try:
+                        playsound(AppConfig.NOTIFY_SOUND)
+                    except Exception as e:
+                        logger.error(f"Failed to play sound: {e}")
+                        winsound.MessageBeep(winsound.MB_ICONASTERISK)
+
+                threading.Thread(target=_play, daemon=True).start()
 
         # 1. Check Accept (Global check)
         accept_pos = config_manager.get("accept_match_pixel_pos")

@@ -18,13 +18,15 @@ BASE_DIR = get_base_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v7.14"
-    GEOMETRY: str = "340x480"
+    VERSION: str = "v1.0"
+    GEOMETRY: str = "360x520"  # Slightly larger for cards and whitespace
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
     CONFIG_FILE: str = os.path.join(BASE_DIR, "config.json")
     LOG_FILE: str = os.path.join(BASE_DIR, "autoresetlol.log")
+    NOTIFY_SOUND: str = os.path.join(BASE_DIR, "assets", "notify.mp3")
     VERIFY_TIMEOUT: int = 25
+    FONT_FAMILY: str = "Inter"
 
 
 class GameInfo:
@@ -33,32 +35,36 @@ class GameInfo:
 
 
 class Colors:
-    # Shadcn-like palette
-    ZINC_50: str = "#fafafa"
-    ZINC_100: str = "#f4f4f5"
-    ZINC_200: str = "#e4e4e7"
-    ZINC_300: str = "#d4d4d8"
-    ZINC_400: str = "#a1a1aa"
-    ZINC_500: str = "#71717a"
-    ZINC_600: str = "#52525b"
-    ZINC_700: str = "#3f3f46"
-    ZINC_800: str = "#27272a"
-    ZINC_900: str = "#18181b"
+    # Flexoki Dark Palette (HSL to Hex)
+    BG: str = "#100f0f"  # background: 0 3% 6%
+    FG: str = "#cecdc3"  # foreground: 55 10% 79%
+    CARD: str = "#100f0f"  # card: 0 3% 6%
+    CARD_FG: str = "#cecdc3"  # card-foreground: 55 10% 79%
+    PRIMARY: str = "#cecdc3"  # primary: 55 10% 79%
+    PRIMARY_FG: str = "#100f0f"  # primary-foreground: 0 3% 6%
+    SECONDARY: str = "#1c1b1a"  # secondary: 30 4% 11%
+    MUTED: str = "#1c1b1a"  # muted: 30 4% 11%
+    MUTED_FG: str = "#878580"  # muted-foreground: 43 3% 52%
+    BORDER: str = "#282726"  # border: 30 3% 15%
+    INPUT: str = "#282726"  # input: 30 3% 15%
+    RING: str = "#3f3e3d"  # ring: 30 3% 24%
 
-    EMERALD_400: str = "#34d399"
-    SKY_400: str = "#38bdf8"
-    AMBER_400: str = "#fbbf24"
-    ROSE_400: str = "#fb7185"
-    RED_200: str = "#fecaca"
-    RED_800: str = "#991b1b"
-    RED_900: str = "#7f1d1d"
+    # Flexoki Primary Colors
+    RED: str = "#d65d4e"  # red-primary: 5 61% 54%
+    ORANGE: str = "#da702c"  # orange-primary: 23 70% 51%
+    YELLOW: str = "#d0a215"  # yellow-primary: 45 82% 45%
+    GREEN: str = "#879a39"  # green-primary: 72 46% 41%
+    CYAN: str = "#3aa99f"  # cyan-primary: 175 49% 45%
+    BLUE: str = "#4385be"  # blue-primary: 208 49% 50%
+    PURPLE: str = "#8b7ec8"  # purple-primary: 251 40% 64%
+    MAGENTA: str = "#ce5d97"  # magenta-primary: 329 54% 59%
 
     # Logic colors
-    STATUS_GREEN: str = EMERALD_400
-    STATUS_RED: str = ROSE_400
-    STATUS_BLUE: str = SKY_400
-    STATUS_ORANGE: str = AMBER_400
-    STATUS_GRAY: str = ZINC_400
+    STATUS_GREEN: str = GREEN
+    STATUS_RED: str = RED
+    STATUS_BLUE: str = BLUE
+    STATUS_ORANGE: str = ORANGE
+    STATUS_GRAY: str = MUTED_FG
 
 
 class DefaultConfig:
