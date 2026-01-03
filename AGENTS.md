@@ -73,11 +73,11 @@ uv run python main.py
 # Install Deps
 uv pip install -r pyproject.toml
 
-# Build (Example for v1.01)
-uv run pyinstaller AntiFateEngine_v1.01.spec
+# Build (Example for v1.02)
+uv run pyinstaller AntiFateEngine_v1.02.spec
 
 # Release (MANDATORY)
-gh release create v1.01 dist/AntiFateEngine_v1.01.exe --title "Release v1.01" --notes "Update description"
+gh release create v1.02 dist/AntiFateEngine_v1.02.exe --title "Release v1.02" --notes "Giant Timer UI, Volume Slider, and Persistent Geometry."
 ```
 
 ## NOTES

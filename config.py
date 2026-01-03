@@ -37,7 +37,9 @@ class BotConfig:
     dimmer_value: int = DefaultConfig.DIMMER_VALUE
     dimmer_enabled: bool = DefaultConfig.DIMMER_ENABLED
     reset_sound_enabled: bool = DefaultConfig.RESET_SOUND_ENABLED
+    sound_volume: int = 50  # Default 50%
     auto_startup_enabled: bool = DefaultConfig.AUTO_STARTUP_ENABLED
+    window_geometry: str = "360x540"
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BotConfig":

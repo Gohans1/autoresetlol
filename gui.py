@@ -34,19 +34,26 @@ class CardFrame(ctk.CTkFrame):
 class AntiFateApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        self.withdraw()  # Hide initially to prevent flicker
+
+        # Load geometry from config
+        saved_geo = config_manager.get("window_geometry") or AppConfig.GEOMETRY
+        self.geometry(saved_geo)
+        self.minsize(360, 540)
+        self.resizable(True, True)  # Allow resizing
+        self.configure(fg_color=Colors.BG)
 
         # Window Setup
         self.title(AppConfig.APP_NAME)
-        self.geometry(AppConfig.GEOMETRY)
-        self.resizable(False, False)
-        self.configure(fg_color=Colors.BG)
 
         # Animation state
         self.pulse_val = 0.0
         self.pulse_dir = 1
         self.pulse_speed = 0.05
         self.current_state_color = Colors.STATUS_GRAY
+        self.current_state_color_name = "gray"
         self.is_animating = True
+        self._geo_save_timer = None
 
         # Set Window Icon
         try:
@@ -71,12 +78,18 @@ class AntiFateApp(ctk.CTk):
         self.dimmer_enabled_var = ctk.BooleanVar(value=True)
         self.reset_sound_enabled_var = ctk.BooleanVar(value=True)
         self.auto_startup_enabled_var = ctk.BooleanVar(value=False)
+        self.sound_volume_var = tk.IntVar(value=50)
 
         self._setup_icons()
         self.create_widgets()
         self.load_settings()
 
-        # Handle Window Close to reset gamma
+        # Final show
+        self.update_idletasks()
+        self.deiconify()
+
+        # Bind events
+        self.bind("<Configure>", self._on_window_configure)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _setup_icons(self) -> None:
@@ -182,47 +195,71 @@ class AntiFateApp(ctk.CTk):
         main_container = ctk.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # 1. Status Heartbeat Card
+        # 1. Status Heartbeat Card (Redesigned for Giant Timer)
         self.status_card = CardFrame(main_container)
         self.status_card.pack(fill="x", pady=(0, 15))
 
-        # Avatar Container with Pulse
-        self.avatar_frame = ctk.CTkFrame(
-            self.status_card, fg_color="transparent", width=80, height=80
-        )
-        self.avatar_frame.pack(pady=(20, 0))
-        self.avatar_frame.pack_propagate(False)
-
-        # Load resized avatar for the UI
-        display_avatar = ctk.CTkImage(self.avatar_base, size=(64, 64))
-        self.avatar_label = ctk.CTkLabel(
-            self.avatar_frame, text="", image=display_avatar
-        )
-        self.avatar_label.place(relx=0.5, rely=0.5, anchor="center")
-
-        # Overlay Icon (Dynamic)
-        self.status_icon = ctk.CTkLabel(
-            self.avatar_frame, text="", image=self.icons["gray"]
-        )
-        self.status_icon.place(relx=0.5, rely=0.5, anchor="center")
-
+        # Status Label (Secondary)
         self.status_label = ctk.CTkLabel(
             self.status_card,
-            text=UIStatus.READY,
-            font=(AppConfig.FONT_FAMILY, 14, "bold"),
+            text=UIStatus.READY.upper(),
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
             text_color=Colors.MUTED_FG,
         )
-        self.status_label.pack(pady=(5, 10))
+        self.status_label.pack(pady=(24, 0))
 
-        # Dynamic Progress Bar (for SEARCHING state)
+        # Giant Timer (Hero)
+        self.timer_label = ctk.CTkLabel(
+            self.status_card,
+            text="0 / 0",
+            font=("JetBrains Mono", 64, "bold"),
+            text_color=Colors.PRIMARY,
+        )
+        self.timer_label.pack(pady=(0, 10))
+
+        # Hidden overlay icon (still useful for some states but not main)
+        self.status_icon = ctk.CTkLabel(
+            self.status_card, text="", image=self.icons["gray"]
+        )
+        # Not packing icon as requested
+
+        # Dynamic Progress Bar
         self.status_progress = ctk.CTkProgressBar(
             self.status_card,
-            height=4,
+            height=2,
             fg_color=Colors.SECONDARY,
             progress_color=Colors.BLUE,
         )
         self.status_progress.set(0)
-        self.status_progress.pack(fill="x", padx=30, pady=(0, 20))
+        self.status_progress.pack(fill="x", padx=40, pady=(0, 24))
+
+        # Volume Slider Row (Integrated below Status Card)
+        volume_row = ctk.CTkFrame(main_container, fg_color="transparent")
+        volume_row.pack(fill="x", pady=(0, 15), padx=5)
+
+        self.volume_icon = ctk.CTkLabel(
+            volume_row, text="🔊", font=(AppConfig.FONT_FAMILY, 14)
+        )
+        self.volume_icon.pack(side="left", padx=(0, 10))
+
+        self.volume_slider = ctk.CTkSlider(
+            volume_row,
+            from_=0,
+            to=100,
+            number_of_steps=100,
+            variable=self.sound_volume_var,
+            command=self._on_volume_changed,
+            fg_color=Colors.SECONDARY,
+            progress_color=Colors.BLUE,
+            button_color=Colors.PRIMARY,
+            height=16,
+        )
+        self.volume_slider.pack(side="left", fill="x", expand=True)
+
+        self.volume_label = ctk.CTkLabel(
+            volume_row, text="50%", font=(AppConfig.FONT_FAMILY, 11, "bold"), width=40
+        )
+        self.volume_label.pack(side="right", padx=(5, 0))
 
         # Start animation
         self.animate_heartbeat()
@@ -382,7 +419,7 @@ class AntiFateApp(ctk.CTk):
             state="disabled",
             command=self.stop_bot,
         )
-        self.stop_btn.pack(fill="x")
+        self.stop_btn.pack(fill="x", pady=(0, 20))
 
         # 5. Footer
         ctk.CTkLabel(
@@ -397,11 +434,40 @@ class AntiFateApp(ctk.CTk):
         val = self.reset_time_var.get()
         if val.isdigit():
             config_manager.set("reset_time", int(val))
+            self.update_status(
+                self.status_label.cget("text"), self.current_state_color_name
+            )
+
+    def _on_volume_changed(self, value: float) -> None:
+        """Update volume setting and label."""
+        vol = int(value)
+        self.volume_label.configure(text=f"{vol}%")
+        config_manager.set("sound_volume", vol)
+
+    def _on_window_configure(self, event) -> None:
+        """Capture window resize/move with debounce."""
+        if event.widget == self:
+            if self.state() == "normal":
+                if self._geo_save_timer:
+                    self.after_cancel(self._geo_save_timer)
+                self._geo_save_timer = self.after(500, self._save_geometry)
+
+    def _save_geometry(self) -> None:
+        """Save current window geometry to config."""
+        if self.state() == "normal":
+            new_geo = self.geometry()
+            config_manager.set("window_geometry", new_geo)
+            logger.info(f"Window geometry saved: {new_geo}")
 
     def load_settings(self) -> None:
         # Load Reset Time
         saved_time = config_manager.get("reset_time")
         self.reset_time_var.set(str(saved_time))
+
+        # Load Volume
+        saved_vol = config_manager.get("sound_volume") or 50
+        self.sound_volume_var.set(saved_vol)
+        self.volume_label.configure(text=f"{saved_vol}%")
 
         # Load Dimmer Settings
         dimmer_val = config_manager.get("dimmer_value") or 100
@@ -513,9 +579,8 @@ class AntiFateApp(ctk.CTk):
         }
         color_str = str(color).lower()
         final_color = color_map.get(color_str, Colors.STATUS_GRAY)
-        icon_key = color_str if color_str in self.icons else "gray"
-
         self.current_state_color = final_color
+        self.current_state_color_name = color_str
 
         # Adjust animation speed based on state
         if color_str == "blue":  # Searching
@@ -529,8 +594,11 @@ class AntiFateApp(ctk.CTk):
         else:
             self.pulse_speed = 0.02
 
-        # Parse progress if searching
+        # Parse progress and timer if searching
         progress = 0.0
+        timer_text = "0 / 0"
+        status_text = text.upper()
+
         if "Searching" in text:
             try:
                 # Extract (elapsed/threshold)
@@ -538,15 +606,33 @@ class AntiFateApp(ctk.CTk):
                 current = int(parts[0])
                 total = int(parts[1])
                 progress = min(1.0, current / total)
+                timer_text = f"{current} / {total}"
+                status_text = "SEARCHING..."
             except:
-                progress = 0
+                pass
+        elif "Ready" in text:
+            timer_text = "0 / " + str(config_manager.get("reset_time"))
+            status_text = "READY"
+        elif "Stopped" in text:
+            timer_text = "OFF"
+            status_text = "STOPPED"
+        elif "Verifying" in text:
+            try:
+                # Extract remaining seconds
+                val = text.split("... ")[1].replace("s", "")
+                timer_text = f"FIXING {val}"
+                status_text = "VERIFYING..."
+            except:
+                timer_text = "CONFIRM"
 
         # Thread-safe update
         self.after(
             0,
             lambda: [
-                self.status_label.configure(text=text, text_color=final_color),
-                self.status_icon.configure(image=self.icons[icon_key]),
+                self.status_label.configure(
+                    text=status_text, text_color=Colors.MUTED_FG
+                ),
+                self.timer_label.configure(text=timer_text, text_color=final_color),
                 self.status_progress.set(progress),
                 self.status_progress.configure(progress_color=final_color),
             ],

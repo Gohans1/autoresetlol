@@ -2,7 +2,7 @@ import threading
 import time
 import winsound
 import pyautogui
-from playsound import playsound
+import ctypes
 from enum import Enum, auto
 from typing import Callable, Optional, Tuple
 
@@ -115,7 +115,24 @@ class AntiFateBot(threading.Thread):
 
                 def _play():
                     try:
-                        playsound(AppConfig.NOTIFY_SOUND)
+                        # Use Windows MCI to play MP3 with volume control
+                        mci = ctypes.windll.winmm.mciSendStringW
+                        alias = "bot_notify"
+                        file_path = AppConfig.NOTIFY_SOUND
+                        volume = config_manager.get("sound_volume") or 50
+
+                        mci(f"close {alias}", None, 0, 0)
+                        mci(
+                            f'open "{file_path}" type mpegvideo alias {alias}',
+                            None,
+                            0,
+                            0,
+                        )
+                        mci(
+                            f"setaudio {alias} volume to {int(volume * 10)}", None, 0, 0
+                        )
+                        mci(f"play {alias} wait", None, 0, 0)
+                        mci(f"close {alias}", None, 0, 0)
                     except Exception as e:
                         logger.error(f"Failed to play sound: {e}")
                         winsound.MessageBeep(winsound.MB_ICONASTERISK)
