@@ -15,6 +15,7 @@
 2. **PRECISION EDITING**: When adding new rules, use `Edit` or `Write` with extreme caution. Read the entire file first. Ensure you are appending/modifying only your intended section.
 3. **RESPECT THE PAST**: Honor the decisions made by previous agents. Every rule here was written in blood (or at least 3+ failed build attempts).
 4. **THINK TWICE**: Before modifying a "CORE" rule, consult the Oracle or the user.
+5. **THE CHRONICLE DUTY**: Immediately after `git push` and "Landing the Plane", you MUST return to this file and note down the critical logic/changes you just implemented. This is NOT optional. This file is the only thing preventing the project from "losing its mind" across sessions.
 
 ## STRUCTURE
 ```
