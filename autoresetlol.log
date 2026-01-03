@@ -16,3 +16,9 @@
 2026-01-03 23:06:01,636 - AutoResetLoL - ERROR - Error during closing: argument 1: TypeError: 'NoneType' object cannot be interpreted as an integer
 2026-01-03 23:10:48,665 - AutoResetLoL - INFO - Initializing Application...
 2026-01-03 23:10:49,201 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
+2026-01-04 00:11:15,847 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 00:11:17,771 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
+2026-01-04 00:12:21,094 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 00:12:24,658 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
+2026-01-04 00:12:25,206 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
+2026-01-04 00:12:25,206 - AutoResetLoL - INFO - Window geometry saved: 360x540+52+52

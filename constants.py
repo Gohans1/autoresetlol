@@ -24,7 +24,7 @@ CONFIG_DIR = get_config_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v1.02"  # Incrementing version
+    VERSION: str = "v1.03"  # Fixed visibility and case sensitivity
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"

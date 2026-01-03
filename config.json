@@ -42,5 +42,7 @@
     "dimmer_value": 100,
     "dimmer_enabled": true,
     "reset_sound_enabled": true,
-    "auto_startup_enabled": false
+    "sound_volume": 50,
+    "auto_startup_enabled": false,
+    "window_geometry": "360x540+52+52"
 }

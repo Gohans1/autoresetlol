@@ -34,11 +34,19 @@ class CardFrame(ctk.CTkFrame):
 class AntiFateApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.withdraw()  # Hide initially to prevent flicker
+        # self.withdraw()  # Temporarily disabled to debug visibility
 
         # Load geometry from config
-        saved_geo = config_manager.get("window_geometry") or AppConfig.GEOMETRY
-        self.geometry(saved_geo)
+        saved_geo = config_manager.get("window_geometry")
+        if saved_geo:
+            try:
+                self.geometry(saved_geo)
+            except Exception as e:
+                logger.error(f"Failed to apply saved geometry: {e}")
+                self.geometry(AppConfig.GEOMETRY)
+        else:
+            self.geometry(AppConfig.GEOMETRY)
+
         self.minsize(360, 540)
         self.resizable(True, True)  # Allow resizing
         self.configure(fg_color=Colors.BG)
@@ -86,7 +94,7 @@ class AntiFateApp(ctk.CTk):
 
         # Final show
         self.update_idletasks()
-        self.deiconify()
+        # self.deiconify() # Disabled with withdraw
 
         # Bind events
         self.bind("<Configure>", self._on_window_configure)
@@ -598,8 +606,9 @@ class AntiFateApp(ctk.CTk):
         progress = 0.0
         timer_text = "0 / 0"
         status_text = text.upper()
+        text_lower = text.lower()
 
-        if "Searching" in text:
+        if "searching" in text_lower:
             try:
                 # Extract (elapsed/threshold)
                 parts = text.split("(")[1].split(")")[0].split("/")
@@ -610,13 +619,13 @@ class AntiFateApp(ctk.CTk):
                 status_text = "SEARCHING..."
             except:
                 pass
-        elif "Ready" in text:
+        elif "ready" in text_lower:
             timer_text = "0 / " + str(config_manager.get("reset_time"))
             status_text = "READY"
-        elif "Stopped" in text:
+        elif "stopped" in text_lower:
             timer_text = "OFF"
             status_text = "STOPPED"
-        elif "Verifying" in text:
+        elif "verifying" in text_lower:
             try:
                 # Extract remaining seconds
                 val = text.split("... ")[1].replace("s", "")
