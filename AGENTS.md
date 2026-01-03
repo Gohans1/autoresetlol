@@ -52,6 +52,7 @@ autoresetlol/
 - **Package Manager:** BẮT BUỘC dùng `uv` cho mọi thao tác cài đặt/chạy lệnh (`uv pip install`, `uv run`...). KHÔNG dùng pip trần.
 - **Versioning:** Phiên bản bắt đầu từ `1.0`. Khi có thay đổi, LUÔN LUÔN tăng 1 version nhỏ (ví dụ: `1.0` -> `1.01`, `1.01` -> `1.02`). KHÔNG dùng version 7.x hay lộn xộn khác.
 - **Build Process:** LUÔN LUÔN build sau khi sửa đổi bằng PyInstaller qua `uv`. Code xong là phải build ngay. Tạo spec file và binary theo đúng version mới.
+- **Total Cleanup:** Mỗi khi tạo bản build mới, PHẢI xóa sạch mọi file `.spec` cũ và mọi file `.exe` cũ trong thư mục `dist/`. KHÔNG để lại bất kỳ tàn dư nào của các phiên bản trước đó. Project chỉ chấp nhận sự tồn tại của phiên bản HIỆN TẠI.
 
 ### 2. Bot Logic & Game Detection
 - **Game Sensitivity:** Bot TUYỆT ĐỐI KHÔNG ĐƯỢC chiếm quyền focus (nhảy taskbar) khi người chơi đang **In-Game**.
