@@ -24,7 +24,7 @@ CONFIG_DIR = get_config_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v1.04"  # Startup logic cleanup and enhanced AGENTS.md
+    VERSION: str = "v1.05"  # UI enhancements: Info Modal and Professional Footer
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"

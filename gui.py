@@ -1,12 +1,13 @@
 import customtkinter as ctk  # type: ignore
 import tkinter as tk
 from tkinter import messagebox
+import webbrowser
 import pyautogui
 import time
 import threading
+import os
 from typing import Optional, Dict
 from PIL import Image, ImageTk, ImageDraw
-import os
 
 from config import config_manager
 from bot import AntiFateBot
@@ -29,6 +30,75 @@ class CardFrame(ctk.CTkFrame):
             corner_radius=8,
             **kwargs,
         )
+
+
+class InfoModal(ctk.CTkToplevel):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self.title("Information")
+        self.geometry("300x200")
+        self.resizable(False, False)
+        self.configure(fg_color=Colors.BG)
+
+        # Center over parent
+        self.update_idletasks()
+        parent_x = master.winfo_x()
+        parent_y = master.winfo_y()
+        parent_w = master.winfo_width()
+        parent_h = master.winfo_height()
+
+        x = parent_x + (parent_w // 2) - (300 // 2)
+        y = parent_y + (parent_h // 2) - (200 // 2)
+        self.geometry(f"+{x}+{y}")
+
+        self.attributes("-topmost", True)
+        self.focus_set()
+
+        # UI Elements
+        container = ctk.CTkFrame(self, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(
+            container,
+            text="RESOLUTION DISCLAIMER",
+            font=(AppConfig.FONT_FAMILY, 14, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(pady=(0, 10))
+
+        ctk.CTkLabel(
+            container,
+            text="This engine is specifically tuned for League client at these resolutions:",
+            font=(AppConfig.FONT_FAMILY, 11),
+            text_color=Colors.MUTED_FG,
+            wraplength=250,
+        ).pack(pady=(0, 15))
+
+        badge_frame = ctk.CTkFrame(
+            container, fg_color=Colors.SECONDARY, corner_radius=6
+        )
+        badge_frame.pack(pady=(0, 20))
+
+        ctk.CTkLabel(
+            badge_frame,
+            text="1920x1080 • 1600x900",
+            font=("JetBrains Mono", 12, "bold"),
+            text_color=Colors.BLUE,
+            padx=12,
+            pady=4,
+        ).pack()
+
+        ctk.CTkButton(
+            container,
+            text="ACKNOWLEDGE",
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            height=32,
+            fg_color=Colors.CARD,
+            border_color=Colors.BORDER,
+            border_width=1,
+            text_color=Colors.FG,
+            hover_color=Colors.SECONDARY,
+            command=self.destroy,
+        ).pack(fill="x")
 
 
 class AntiFateApp(ctk.CTk):
@@ -201,7 +271,7 @@ class AntiFateApp(ctk.CTk):
     def create_widgets(self) -> None:
         # Main Layout
         main_container = ctk.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        main_container.pack(fill="both", expand=True, padx=24, pady=24)
 
         # 1. Status Heartbeat Card (Redesigned for Giant Timer)
         self.status_card = CardFrame(main_container)
@@ -224,6 +294,21 @@ class AntiFateApp(ctk.CTk):
             text_color=Colors.PRIMARY,
         )
         self.timer_label.pack(pady=(0, 10))
+
+        # Info Button (Top Right)
+        self.info_btn = ctk.CTkButton(
+            self.status_card,
+            text="i",
+            width=20,
+            height=20,
+            corner_radius=10,
+            fg_color="transparent",
+            text_color=Colors.MUTED_FG,
+            hover_color=Colors.SECONDARY,
+            font=(AppConfig.FONT_FAMILY, 12, "italic", "bold"),
+            command=self.show_info_modal,
+        )
+        self.info_btn.place(relx=0.96, rely=0.08, anchor="ne")
 
         # Hidden overlay icon (still useful for some states but not main)
         self.status_icon = ctk.CTkLabel(
@@ -430,12 +515,56 @@ class AntiFateApp(ctk.CTk):
         self.stop_btn.pack(fill="x", pady=(0, 20))
 
         # 5. Footer
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=20, pady=(0, 15))
+
+        # Author Link
+        author_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        author_frame.pack(side="left")
+
         ctk.CTkLabel(
-            self,
-            text=f"{AppConfig.VERSION} • Anti-Fate Engine",
-            font=(AppConfig.FONT_FAMILY, 10),
+            author_frame,
+            text="Created by ",
+            font=(AppConfig.FONT_FAMILY, 11),
             text_color=Colors.MUTED_FG,
-        ).pack(side="bottom", pady=5)
+        ).pack(side="left")
+
+        self.author_link = ctk.CTkLabel(
+            author_frame,
+            text="YeonGyu Kim",
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            text_color=Colors.MUTED_FG,
+            cursor="hand2",
+        )
+        self.author_link.pack(side="left")
+        self.author_link.bind(
+            "<Enter>", lambda e: self.author_link.configure(text_color=Colors.PRIMARY)
+        )
+        self.author_link.bind(
+            "<Leave>", lambda e: self.author_link.configure(text_color=Colors.MUTED_FG)
+        )
+        self.author_link.bind(
+            "<Button-1>", lambda e: webbrowser.open("https://x.com/GohansVN")
+        )
+
+        # Resolution Badge
+        badge_frame = ctk.CTkFrame(
+            footer,
+            fg_color=Colors.SECONDARY,
+            corner_radius=4,
+            border_width=1,
+            border_color=Colors.BORDER,
+        )
+        badge_frame.pack(side="right")
+
+        ctk.CTkLabel(
+            badge_frame,
+            text="1080p | 1600x900",
+            font=("JetBrains Mono", 10, "bold"),
+            text_color=Colors.MUTED_FG,
+            padx=8,
+            pady=2,
+        ).pack()
 
     def _on_time_changed(self, var, index, mode) -> None:
         """Auto-save reset time when user types."""
@@ -543,6 +672,10 @@ class AntiFateApp(ctk.CTk):
         if self.dimmer_enabled_var.get():
             self.dimmer.set_brightness(int(value))
             config_manager.set("dimmer_value", int(value))
+
+    def show_info_modal(self) -> None:
+        """Trigger the professional info modal."""
+        InfoModal(self)
 
     def animate_heartbeat(self) -> None:
         """Dynamic pulsing animation for the status card."""

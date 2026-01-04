@@ -38,11 +38,11 @@
         1621,
         108
     ],
-    "reset_time": 10,
-    "dimmer_value": 71,
+    "reset_time": 3,
+    "dimmer_value": 64,
     "dimmer_enabled": true,
     "reset_sound_enabled": true,
-    "sound_volume": 14,
+    "sound_volume": 4,
     "auto_startup_enabled": true,
-    "window_geometry": "403x636+650+220"
+    "window_geometry": "420x636+650+220"
 }

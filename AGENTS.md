@@ -1,6 +1,6 @@
 # autoresetlol - Agent Knowledge Base & Rules
 
-**Generated:** 2026-01-04T01:45:00Z
+**Generated:** 2026-01-04T01:50:00Z
 **Branch:** main
 
 ## OVERVIEW 🤖
@@ -9,13 +9,6 @@
 - **Primary Goal:** Prevent getting stuck in long queues and ensure match acceptance without manual monitoring.
 - **Core Stack:** Python, CustomTkinter, PyInstaller, Win32 API.
 - **Theme:** [Flexoki](https://stephango.com/flexoki) by Steph Ango (Dark mode).
-
-## ⚠️ AGENT COMMANDMENTS (READ BEFORE EDITING) ⚠️
-1. **SACRED DOCUMENT**: This file is the project's spine. NEVER delete existing rules or information unless they are explicitly proven obsolete.
-2. **PRECISION EDITING**: When adding new rules, use `Edit` or `Write` with extreme caution. Read the entire file first. Ensure you are appending/modifying only your intended section.
-3. **RESPECT THE PAST**: Honor the decisions made by previous agents. Every rule here was written in blood (or at least 3+ failed build attempts).
-4. **THINK TWICE**: Before modifying a "CORE" rule, consult the Oracle or the user.
-5. **THE CHRONICLE DUTY**: Immediately after `git push` and "Landing the Plane", you MUST return to this file and note down the critical logic/changes you just implemented. This is NOT optional. This file is the only thing preventing the project from "losing its mind" across sessions.
 
 ## STRUCTURE
 ```
@@ -72,11 +65,12 @@ autoresetlol/
 ## CORE UNCHANGEABLE PROTOCOLS 📋
 
 ### 1. Feature Guard (Chống Hỏng Chức Năng Cũ)
-Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 4 trụ cột này:
+Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 5 trụ cột này:
 1. **Giant Timer UI**: Bộ đếm số (?/?) phải là trọng tâm, to rõ nhất.
 2. **Persistence**: Đổi giá trị Reset Threshold, tắt đi bật lại xem có giữ nguyên không.
 3. **Audio Volume**: Thanh trượt volume phải thực sự điều chỉnh được âm thanh thông báo.
 4. **Dimmer Control**: Chức năng làm tối màn hình phải hoạt động và reset về 100% khi thoát.
+5. **Info & Socials**: Nút 'i' phải mở Modal Resolution, và link chân trang phải trỏ đúng về Twitter tác giả.
 
 ### 2. Landing the Plane Protocol
 Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
@@ -99,11 +93,11 @@ uv run python main.py
 # Install Deps
 uv pip install -r pyproject.toml
 
-# Build (Example for v1.02)
-uv run pyinstaller AntiFateEngine_v1.02.spec
+# Build (Example for v1.05)
+uv run pyinstaller AntiFateEngine_v1.05.spec
 
 # Release (MANDATORY)
-gh release create v1.02 dist/AntiFateEngine_v1.02.exe --title "Release v1.02" --notes "Giant Timer UI, Volume Slider, and Persistent Geometry."
+gh release create v1.05 dist/AntiFateEngine_v1.05.exe --title "Release v1.05" --notes "UI Overhaul: Info Modal, Professional Footer with author link, and Resolution Badge."
 ```
 
 ## NOTES
