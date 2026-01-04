@@ -61,6 +61,8 @@ autoresetlol/
 - **Brightness Safety:** Dimmer PHẢI được kẹp (clamped) trong khoảng `1-100%`. Tuyệt đối không để user chỉnh về `0%`.
 - **Portable Integrity:** Config (`config.json`) và Log (`*.log`) PHẢI được lưu cạnh file thực thi (.exe) khi chạy bản build. KHÔNG lưu trong thư mục tạm `_MEIPASS`.
 - **Startup Logic:** Registry entry PHẢI luôn trỏ đúng vào file thực thi hiện tại. Tên Registry key mặc định là `"Anti-Fate Engine"`.
+- **Layout Integrity:** Khi thêm UI mới, Footer PHẢI được pack đầu tiên với `side="bottom"`. `main_container` (với `expand=True`) PHẢI được pack sau để Footer luôn hiển thị.
+- **Cursor Safety:** TUYỆT ĐỐI không dùng cursor không hỗ trợ trên Windows (ví dụ: `question_mark`). Chỉ dùng `hand2` cho các liên kết/nút có thể nhấp.
 
 ## CORE UNCHANGEABLE PROTOCOLS 📋
 
@@ -70,13 +72,13 @@ Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 5 trụ c
 2. **Persistence**: Đổi giá trị Reset Threshold, tắt đi bật lại xem có giữ nguyên không.
 3. **Audio Volume**: Thanh trượt volume phải thực sự điều chỉnh được âm thanh thông báo.
 4. **Dimmer Control**: Chức năng làm tối màn hình phải hoạt động và reset về 100% khi thoát.
-5. **Info & Socials**: Nút 'i' phải mở Modal Resolution, và link chân trang phải trỏ đúng về Twitter tác giả.
+5. **Info & Socials**: Nút 'i' PHẢI mở Modal Resolution. Footer PHẢI hiện tên tác giả là **Gohans** và dẫn về link Twitter `https://x.com/GohansVN`. Badge độ phân giải PHẢI có khả năng tương tác.
 
 ### 2. Landing the Plane Protocol
 Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
 1. **Cleanup**: Xóa mọi file rác, legacy registry (nếu có sự thay đổi về tên/version).
 2. **Build**: Tạo file `.spec` mới và build `.exe`.
-3. **Verify**: Chạy bản build, kiểm tra 4 trụ cột ở mục 1.
+3. **Verify**: Chạy bản build, kiểm tra 5 trụ cột ở mục 1.
 4. **Document**: Note lại vào chính file `AGENTS.md` này nếu có logic nào mới cần bảo vệ. BẮT BUỘC thực hiện cực kì nghiêm túc và thật KĨ sau khi Landing the Plane.
 5. **Ship**: `git push`, `bd sync`, và tạo GitHub Release.
 
@@ -84,6 +86,7 @@ Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
 - **Focus Stealing:** Never call `force_focus_window` when `is_game_running()` detects the game client.
 - **Direct config.json Edit:** Never overwrite `config.json` in `dist/` as it contains hardcoded production coordinates.
 - **Gamma Mismanagement:** Never leave gamma at <100% on app exit or when entering champion select.
+- **Pack Disorder:** Never pack the main expand container before the bottom footer.
 
 ## COMMANDS ⚡
 ```bash
@@ -93,11 +96,11 @@ uv run python main.py
 # Install Deps
 uv pip install -r pyproject.toml
 
-# Build (Example for v1.05)
-uv run pyinstaller AntiFateEngine_v1.05.spec
+# Build (Example for v1.06)
+uv run pyinstaller AntiFateEngine_v1.06.spec
 
 # Release (MANDATORY)
-gh release create v1.05 dist/AntiFateEngine_v1.05.exe --title "Release v1.05" --notes "UI Overhaul: Info Modal, Professional Footer with author link, and Resolution Badge."
+gh release create v1.06 dist/AntiFateEngine_v1.06.exe --title "Release v1.06" --notes "Professional UI: Fixed Footer, Interactive Badge, and Branding to 'Gohans'."
 ```
 
 ## NOTES
