@@ -22,3 +22,43 @@
 2026-01-04 00:12:24,658 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
 2026-01-04 00:12:25,206 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
 2026-01-04 00:12:25,206 - AutoResetLoL - INFO - Window geometry saved: 360x540+52+52
+2026-01-04 21:09:23,352 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 21:09:23,655 - AutoResetLoL - CRITICAL - Critical Application Error: bad cursor spec "question_mark"
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Desktop\autoresetlol\main.py", line 26, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\ADMIN\Desktop\autoresetlol\main.py", line 19, in main
+    app = AntiFateApp()
+  File "C:\Users\ADMIN\Desktop\autoresetlol\gui.py", line 162, in __init__
+    self.create_widgets()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\Desktop\autoresetlol\gui.py", line 306, in create_widgets
+    self.badge_frame = ctk.CTkFrame(
+                       ~~~~~~~~~~~~^
+        footer,
+        ^^^^^^^
+    ...<4 lines>...
+        cursor="question_mark",
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Desktop\autoresetlol\.venv\Lib\site-packages\customtkinter\windows\widgets\ctk_frame.py", line 33, in __init__
+    super().__init__(master=master, bg_color=bg_color, width=width, height=height, **kwargs)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Desktop\autoresetlol\.venv\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 41, in __init__
+    tkinter.Frame.__init__(self, master=master, width=width, height=height, **pop_from_dict_by_set(kwargs, self._valid_tk_frame_attributes))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\uv\python\cpython-3.14.2-windows-x86_64-none\Lib\tkinter\__init__.py", line 3357, in __init__
+    Widget.__init__(self, master, 'frame', cnf, {}, extra)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\AppData\Roaming\uv\python\cpython-3.14.2-windows-x86_64-none\Lib\tkinter\__init__.py", line 2794, in __init__
+    self.tk.call(
+    ~~~~~~~~~~~~^
+        (widgetName, self._w) + extra + self._options(cnf))
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: bad cursor spec "question_mark"
+2026-01-04 21:09:41,595 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 21:09:44,519 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
+2026-01-04 21:09:45,069 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\config.json
+2026-01-04 21:09:45,069 - AutoResetLoL - INFO - Window geometry saved: 360x540+52+52

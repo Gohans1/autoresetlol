@@ -10370,3 +10370,39 @@
 2026-01-04 20:39:30,970 - AutoResetLoL - INFO - Config saved to C:\Users\ADMIN\Desktop\autoresetlol\dist\config.json
 2026-01-04 20:39:30,970 - AutoResetLoL - INFO - Window geometry saved: 466x636+1212+326
 2026-01-04 20:39:31,303 - AutoResetLoL - INFO - Closing application...
+2026-01-04 21:08:08,412 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 21:08:08,640 - AutoResetLoL - CRITICAL - Critical Application Error: bad cursor spec "question_mark"
+Traceback (most recent call last):
+  File "main.py", line 26, in <module>
+  File "main.py", line 19, in main
+  File "gui.py", line 162, in __init__
+  File "gui.py", line 306, in create_widgets
+  File "customtkinter\windows\widgets\ctk_frame.py", line 33, in __init__
+  File "customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 41, in __init__
+  File "tkinter\__init__.py", line 3357, in __init__
+  File "tkinter\__init__.py", line 2794, in __init__
+_tkinter.TclError: bad cursor spec "question_mark"
+2026-01-04 21:08:37,864 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 21:08:38,025 - AutoResetLoL - CRITICAL - Critical Application Error: bad cursor spec "question_mark"
+Traceback (most recent call last):
+  File "main.py", line 26, in <module>
+  File "main.py", line 19, in main
+  File "gui.py", line 162, in __init__
+  File "gui.py", line 306, in create_widgets
+  File "customtkinter\windows\widgets\ctk_frame.py", line 33, in __init__
+  File "customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 41, in __init__
+  File "tkinter\__init__.py", line 3357, in __init__
+  File "tkinter\__init__.py", line 2794, in __init__
+_tkinter.TclError: bad cursor spec "question_mark"
+2026-01-04 21:08:56,057 - AutoResetLoL - INFO - Initializing Application...
+2026-01-04 21:08:56,229 - AutoResetLoL - CRITICAL - Critical Application Error: bad cursor spec "question_mark"
+Traceback (most recent call last):
+  File "main.py", line 26, in <module>
+  File "main.py", line 19, in main
+  File "gui.py", line 162, in __init__
+  File "gui.py", line 306, in create_widgets
+  File "customtkinter\windows\widgets\ctk_frame.py", line 33, in __init__
+  File "customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py", line 41, in __init__
+  File "tkinter\__init__.py", line 3357, in __init__
+  File "tkinter\__init__.py", line 2794, in __init__
+_tkinter.TclError: bad cursor spec "question_mark"

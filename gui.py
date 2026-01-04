@@ -309,7 +309,7 @@ class AntiFateApp(ctk.CTk):
             corner_radius=4,
             border_width=1,
             border_color=Colors.BORDER,
-            cursor="question_mark",
+            cursor="hand2",
         )
         self.badge_frame.pack(side="right")
 
