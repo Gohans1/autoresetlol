@@ -24,7 +24,9 @@ CONFIG_DIR = get_config_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v1.05"  # UI enhancements: Info Modal and Professional Footer
+    VERSION: str = (
+        "v1.06"  # Professional UI: Fixed Footer, Interactive Badge and Branding.
+    )
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"

@@ -303,23 +303,37 @@ class AntiFateApp(ctk.CTk):
         )
 
         # Resolution Badge
-        badge_frame = ctk.CTkFrame(
+        self.badge_frame = ctk.CTkFrame(
             footer,
             fg_color=Colors.SECONDARY,
             corner_radius=4,
             border_width=1,
             border_color=Colors.BORDER,
+            cursor="question_mark",
         )
-        badge_frame.pack(side="right")
+        self.badge_frame.pack(side="right")
 
-        ctk.CTkLabel(
-            badge_frame,
+        self.badge_label = ctk.CTkLabel(
+            self.badge_frame,
             text="1080p | 1600x900",
             font=("JetBrains Mono", 10, "bold"),
             text_color=Colors.MUTED_FG,
             padx=8,
             pady=2,
-        ).pack()
+        )
+        self.badge_label.pack()
+
+        # Add interactions to badge
+        for widget in [self.badge_frame, self.badge_label]:
+            widget.bind(
+                "<Enter>",
+                lambda e: self.badge_frame.configure(border_color=Colors.PRIMARY),
+            )
+            widget.bind(
+                "<Leave>",
+                lambda e: self.badge_frame.configure(border_color=Colors.BORDER),
+            )
+            widget.bind("<Button-1>", lambda e: self.show_info_modal())
 
         # Main Layout (Pack SECOND with expand=True to fill remaining space)
         main_container = ctk.CTkFrame(self, fg_color="transparent")
