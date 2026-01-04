@@ -149,6 +149,7 @@ class AntiFateApp(ctk.CTk):
 
         self.bot: Optional[AntiFateBot] = None
         self.dimmer = GammaController()
+        self._info_modal: Optional[ctk.CTkToplevel] = None
 
         # Variables
         self.reset_time_var = tk.StringVar()
@@ -687,8 +688,12 @@ class AntiFateApp(ctk.CTk):
             config_manager.set("dimmer_value", int(value))
 
     def show_info_modal(self) -> None:
-        """Trigger the professional info modal."""
-        InfoModal(self)
+        """Trigger the professional info modal (Singleton pattern)."""
+        if self._info_modal is not None and self._info_modal.winfo_exists():
+            self._info_modal.focus_set()
+            self._info_modal.attributes("-topmost", True)
+            return
+        self._info_modal = InfoModal(self)
 
     def animate_heartbeat(self) -> None:
         """Dynamic pulsing animation for the status card."""
