@@ -269,11 +269,63 @@ class AntiFateApp(ctk.CTk):
             )
 
     def create_widgets(self) -> None:
-        # Main Layout
-        main_container = ctk.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=24, pady=24)
+        # 5. Footer (Pack FIRST with side=bottom to pin it at the very bottom)
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(side="bottom", fill="x", padx=24, pady=(0, 15))
 
-        # 1. Status Heartbeat Card (Redesigned for Giant Timer)
+        # Author Link
+        author_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        author_frame.pack(side="left")
+
+        ctk.CTkLabel(
+            author_frame,
+            text="Created by ",
+            font=(AppConfig.FONT_FAMILY, 11),
+            text_color=Colors.MUTED_FG,
+        ).pack(side="left")
+
+        self.author_link = ctk.CTkLabel(
+            author_frame,
+            text="Gohans",
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            text_color=Colors.MUTED_FG,
+            cursor="hand2",
+        )
+        self.author_link.pack(side="left")
+        self.author_link.bind(
+            "<Enter>", lambda e: self.author_link.configure(text_color=Colors.PRIMARY)
+        )
+        self.author_link.bind(
+            "<Leave>", lambda e: self.author_link.configure(text_color=Colors.MUTED_FG)
+        )
+        self.author_link.bind(
+            "<Button-1>", lambda e: webbrowser.open("https://x.com/GohansVN")
+        )
+
+        # Resolution Badge
+        badge_frame = ctk.CTkFrame(
+            footer,
+            fg_color=Colors.SECONDARY,
+            corner_radius=4,
+            border_width=1,
+            border_color=Colors.BORDER,
+        )
+        badge_frame.pack(side="right")
+
+        ctk.CTkLabel(
+            badge_frame,
+            text="1080p | 1600x900",
+            font=("JetBrains Mono", 10, "bold"),
+            text_color=Colors.MUTED_FG,
+            padx=8,
+            pady=2,
+        ).pack()
+
+        # Main Layout (Pack SECOND with expand=True to fill remaining space)
+        main_container = ctk.CTkFrame(self, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=24, pady=(24, 0))
+
+        # 1. Status Heartbeat Card
         self.status_card = CardFrame(main_container)
         self.status_card.pack(fill="x", pady=(0, 15))
 
@@ -310,11 +362,10 @@ class AntiFateApp(ctk.CTk):
         )
         self.info_btn.place(relx=0.96, rely=0.08, anchor="ne")
 
-        # Hidden overlay icon (still useful for some states but not main)
+        # Hidden overlay icon
         self.status_icon = ctk.CTkLabel(
             self.status_card, text="", image=self.icons["gray"]
         )
-        # Not packing icon as requested
 
         # Dynamic Progress Bar
         self.status_progress = ctk.CTkProgressBar(
@@ -326,7 +377,7 @@ class AntiFateApp(ctk.CTk):
         self.status_progress.set(0)
         self.status_progress.pack(fill="x", padx=40, pady=(0, 24))
 
-        # Volume Slider Row (Integrated below Status Card)
+        # Volume Slider Row
         volume_row = ctk.CTkFrame(main_container, fg_color="transparent")
         volume_row.pack(fill="x", pady=(0, 15), padx=5)
 
@@ -393,7 +444,7 @@ class AntiFateApp(ctk.CTk):
             text_color=Colors.MUTED_FG,
         ).pack(side="right", padx=5)
 
-        # Separator (Subtle line)
+        # Separator
         ctk.CTkFrame(settings_card, fg_color=Colors.BORDER, height=1).pack(
             fill="x", padx=15, pady=5
         )
@@ -513,58 +564,6 @@ class AntiFateApp(ctk.CTk):
             command=self.stop_bot,
         )
         self.stop_btn.pack(fill="x", pady=(0, 20))
-
-        # 5. Footer
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(side="bottom", fill="x", padx=20, pady=(0, 15))
-
-        # Author Link
-        author_frame = ctk.CTkFrame(footer, fg_color="transparent")
-        author_frame.pack(side="left")
-
-        ctk.CTkLabel(
-            author_frame,
-            text="Created by ",
-            font=(AppConfig.FONT_FAMILY, 11),
-            text_color=Colors.MUTED_FG,
-        ).pack(side="left")
-
-        self.author_link = ctk.CTkLabel(
-            author_frame,
-            text="YeonGyu Kim",
-            font=(AppConfig.FONT_FAMILY, 11, "bold"),
-            text_color=Colors.MUTED_FG,
-            cursor="hand2",
-        )
-        self.author_link.pack(side="left")
-        self.author_link.bind(
-            "<Enter>", lambda e: self.author_link.configure(text_color=Colors.PRIMARY)
-        )
-        self.author_link.bind(
-            "<Leave>", lambda e: self.author_link.configure(text_color=Colors.MUTED_FG)
-        )
-        self.author_link.bind(
-            "<Button-1>", lambda e: webbrowser.open("https://x.com/GohansVN")
-        )
-
-        # Resolution Badge
-        badge_frame = ctk.CTkFrame(
-            footer,
-            fg_color=Colors.SECONDARY,
-            corner_radius=4,
-            border_width=1,
-            border_color=Colors.BORDER,
-        )
-        badge_frame.pack(side="right")
-
-        ctk.CTkLabel(
-            badge_frame,
-            text="1080p | 1600x900",
-            font=("JetBrains Mono", 10, "bold"),
-            text_color=Colors.MUTED_FG,
-            padx=8,
-            pady=2,
-        ).pack()
 
     def _on_time_changed(self, var, index, mode) -> None:
         """Auto-save reset time when user types."""
