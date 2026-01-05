@@ -191,9 +191,10 @@ class AntiFateBot(threading.Thread):
                     self.start_search_time = time.time()
                     self.sound_played = False
         else:
-            # Still update status when auto_reset is disabled (monitor only)
+            # Auto Reset disabled: show static "0 / threshold", don't count
+            self.start_search_time = time.time()  # Keep resetting so timer stays at 0
             self.update_status_callback(
-                UIStatus.SEARCHING.format(elapsed, reset_threshold), "blue"
+                UIStatus.SEARCHING.format(0, reset_threshold), "gray"
             )
 
     def _handle_verifying(self) -> None:
