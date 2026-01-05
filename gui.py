@@ -157,6 +157,8 @@ class AntiFateApp(ctk.CTk):
         self.dimmer_enabled_var = ctk.BooleanVar(value=True)
         self.reset_sound_enabled_var = ctk.BooleanVar(value=True)
         self.auto_startup_enabled_var = ctk.BooleanVar(value=False)
+        self.auto_accept_enabled_var = ctk.BooleanVar(value=True)
+        self.auto_reset_enabled_var = ctk.BooleanVar(value=True)
         self.sound_volume_var = tk.IntVar(value=50)
 
         self._setup_icons()
@@ -505,6 +507,55 @@ class AntiFateApp(ctk.CTk):
         pref_card = CardFrame(main_container)
         pref_card.pack(fill="x", pady=(0, 15))
 
+        # Auto Accept Toggle (NEW)
+        accept_row = ctk.CTkFrame(pref_card, fg_color="transparent")
+        accept_row.pack(fill="x", padx=15, pady=(12, 6))
+
+        ctk.CTkLabel(
+            accept_row,
+            text="Auto Accept Match",
+            font=(AppConfig.FONT_FAMILY, 12),
+            text_color=Colors.FG,
+        ).pack(side="left")
+
+        self.auto_accept_switch = ctk.CTkSwitch(
+            accept_row,
+            text="",
+            width=40,
+            variable=self.auto_accept_enabled_var,
+            command=self.toggle_auto_accept,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
+        )
+        self.auto_accept_switch.pack(side="right")
+
+        # Auto Reset Toggle (NEW)
+        reset_toggle_row = ctk.CTkFrame(pref_card, fg_color="transparent")
+        reset_toggle_row.pack(fill="x", padx=15, pady=(6, 6))
+
+        ctk.CTkLabel(
+            reset_toggle_row,
+            text="Auto Reset Queue",
+            font=(AppConfig.FONT_FAMILY, 12),
+            text_color=Colors.FG,
+        ).pack(side="left")
+
+        self.auto_reset_switch = ctk.CTkSwitch(
+            reset_toggle_row,
+            text="",
+            width=40,
+            variable=self.auto_reset_enabled_var,
+            command=self.toggle_auto_reset,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
+        )
+        self.auto_reset_switch.pack(side="right")
+
+        # Separator
+        ctk.CTkFrame(pref_card, fg_color=Colors.BORDER, height=1).pack(
+            fill="x", padx=15, pady=6
+        )
+
         # Sound Toggle
         sound_row = ctk.CTkFrame(pref_card, fg_color="transparent")
         sound_row.pack(fill="x", padx=15, pady=(12, 6))
@@ -641,6 +692,18 @@ class AntiFateApp(ctk.CTk):
             saved_startup = False
         self.auto_startup_enabled_var.set(saved_startup)
 
+        # Load Auto Accept Settings
+        saved_auto_accept = config_manager.get("auto_accept_enabled")
+        if saved_auto_accept is None:
+            saved_auto_accept = True
+        self.auto_accept_enabled_var.set(saved_auto_accept)
+
+        # Load Auto Reset Settings
+        saved_auto_reset = config_manager.get("auto_reset_enabled")
+        if saved_auto_reset is None:
+            saved_auto_reset = True
+        self.auto_reset_enabled_var.set(saved_auto_reset)
+
         # Apply settings immediately
         self.toggle_dimmer(save=False)
 
@@ -654,6 +717,16 @@ class AntiFateApp(ctk.CTk):
         config_manager.set("auto_startup_enabled", is_enabled)
         set_autostart(AppConfig.APP_NAME, add=is_enabled)
         logger.info(f"Auto Startup toggled: {is_enabled}")
+
+    def toggle_auto_accept(self) -> None:
+        is_enabled = self.auto_accept_enabled_var.get()
+        config_manager.set("auto_accept_enabled", is_enabled)
+        logger.info(f"Auto Accept Match toggled: {is_enabled}")
+
+    def toggle_auto_reset(self) -> None:
+        is_enabled = self.auto_reset_enabled_var.get()
+        config_manager.set("auto_reset_enabled", is_enabled)
+        logger.info(f"Auto Reset Queue toggled: {is_enabled}")
 
     def toggle_dimmer(self, save: bool = True) -> None:
         is_enabled = self.dimmer_enabled_var.get()

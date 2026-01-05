@@ -39,6 +39,8 @@ class BotConfig:
     reset_sound_enabled: bool = DefaultConfig.RESET_SOUND_ENABLED
     sound_volume: int = 50  # Default 50%
     auto_startup_enabled: bool = DefaultConfig.AUTO_STARTUP_ENABLED
+    auto_accept_enabled: bool = DefaultConfig.AUTO_ACCEPT_ENABLED
+    auto_reset_enabled: bool = DefaultConfig.AUTO_RESET_ENABLED
     window_geometry: str = "360x540"
 
     @classmethod

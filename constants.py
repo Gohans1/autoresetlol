@@ -24,7 +24,9 @@ CONFIG_DIR = get_config_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v1.07"  # Professional UI: Singleton Info Modal & Final Polish.
+    VERSION: str = (
+        "v1.08"  # Feature Toggle Independence: Auto Accept & Auto Reset separated.
+    )
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
@@ -88,6 +90,8 @@ class DefaultConfig:
     DIMMER_ENABLED: bool = True
     RESET_SOUND_ENABLED: bool = True
     AUTO_STARTUP_ENABLED: bool = False
+    AUTO_ACCEPT_ENABLED: bool = True  # Auto-accept match when found
+    AUTO_RESET_ENABLED: bool = True  # Auto-reset queue after threshold
 
 
 class UIStatus:

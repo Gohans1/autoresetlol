@@ -107,8 +107,12 @@ class AntiFateBot(threading.Thread):
                 # Removed sleep, UI should handle state-based colors
                 return
 
-        # Sound Notification (1.5s before reset)
-        if config_manager.get("reset_sound_enabled") and not self.sound_played:
+        # Sound Notification (1.5s before reset) - only if auto_reset is enabled
+        if (
+            config_manager.get("reset_sound_enabled")
+            and config_manager.get("auto_reset_enabled")
+            and not self.sound_played
+        ):
             if elapsed_float >= (reset_threshold - 1.5):
                 logger.info("Playing pre-reset sound alert...")
                 self.sound_played = True
@@ -139,51 +143,58 @@ class AntiFateBot(threading.Thread):
 
                 threading.Thread(target=_play, daemon=True).start()
 
-        # 1. Check Accept (Global check)
-        accept_pos = config_manager.get("accept_match_pixel_pos")
-        accept_color = config_manager.get("accept_match_pixel_color")
+        # 1. Check Accept (Conditional - only if auto_accept_enabled)
+        if config_manager.get("auto_accept_enabled"):
+            accept_pos = config_manager.get("accept_match_pixel_pos")
+            accept_color = config_manager.get("accept_match_pixel_color")
 
-        if self.check_pixel(accept_pos, accept_color):
-            logger.info("MATCH FOUND! Accepting...")
-            self.update_status_callback(UIStatus.MATCH_FOUND, "green")
+            if self.check_pixel(accept_pos, accept_color):
+                logger.info("MATCH FOUND! Accepting...")
+                self.update_status_callback(UIStatus.MATCH_FOUND, "green")
 
-            pyautogui.click(accept_pos[0], accept_pos[1])
+                pyautogui.click(accept_pos[0], accept_pos[1])
 
-            # Transition to VERIFYING instead of STANDBY
-            self.state = BotState.VERIFYING
-            self.verify_start_time = time.time()
-            self.update_status_callback("Verifying Accept...", "purple")
-            time.sleep(0.5)
-            return
-
-        # 2. Check Timer & Reset
-        self.update_status_callback(
-            UIStatus.SEARCHING.format(elapsed, reset_threshold), "blue"
-        )
-
-        if elapsed >= reset_threshold:
-            logger.info("Threshold reached. Context checking...")
-
-            if self.is_game_running():
-                logger.info("User IN GAME. Skipping focus.")
-                self.start_search_time = time.time()
-                self.sound_played = False
-                time.sleep(1)
+                # Transition to VERIFYING instead of STANDBY
+                self.state = BotState.VERIFYING
+                self.verify_start_time = time.time()
+                self.update_status_callback("Verifying Accept...", "purple")
+                time.sleep(0.5)
                 return
 
-            # Focus Client
-            self.focus_client()
+        # 2. Check Timer & Reset (Conditional - only if auto_reset_enabled)
+        if config_manager.get("auto_reset_enabled"):
+            self.update_status_callback(
+                UIStatus.SEARCHING.format(elapsed, reset_threshold), "blue"
+            )
 
-            # Verify Queue State
-            queue_pos = config_manager.get("in_queue_pixel_pos")
-            queue_color = config_manager.get("in_queue_pixel_color")
+            if elapsed >= reset_threshold:
+                logger.info("Threshold reached. Context checking...")
 
-            if self.check_pixel(queue_pos, queue_color):
-                self._perform_reset()
-            else:
-                logger.info("Queue pixel not found. Resetting timer.")
-                self.start_search_time = time.time()
-                self.sound_played = False
+                if self.is_game_running():
+                    logger.info("User IN GAME. Skipping focus.")
+                    self.start_search_time = time.time()
+                    self.sound_played = False
+                    time.sleep(1)
+                    return
+
+                # Focus Client
+                self.focus_client()
+
+                # Verify Queue State
+                queue_pos = config_manager.get("in_queue_pixel_pos")
+                queue_color = config_manager.get("in_queue_pixel_color")
+
+                if self.check_pixel(queue_pos, queue_color):
+                    self._perform_reset()
+                else:
+                    logger.info("Queue pixel not found. Resetting timer.")
+                    self.start_search_time = time.time()
+                    self.sound_played = False
+        else:
+            # Still update status when auto_reset is disabled (monitor only)
+            self.update_status_callback(
+                UIStatus.SEARCHING.format(elapsed, reset_threshold), "blue"
+            )
 
     def _handle_verifying(self) -> None:
         """

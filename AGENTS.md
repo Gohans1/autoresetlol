@@ -55,7 +55,18 @@ autoresetlol/
 - **Stealth is Life:** TUYỆT ĐỐI không dùng Win32 API để ghi vào bộ nhớ game. Chỉ được ĐỌC PIXEL. Con bot phải hoạt động như một "người chơi mù" chỉ biết nhìn màn hình.
 - **Human Delay:** Giữa các lệnh click (Cancel -> Find Match), PHẢI nghỉ ít nhất `0.5s - 1.0s`. Client LoL cần thời gian để phản hồi.
 
-### 3. Technical Mechanics (The Backbone) 🦴
+### 3. Feature Toggle Independence (v1.08+) ⚠️ CRITICAL
+- **Two Independent Features:** `Auto Accept Match` và `Auto Reset Queue` là 2 tính năng ĐỘC LẬP với nhau.
+- **Config Keys:** `auto_accept_enabled` và `auto_reset_enabled` trong `config.json`.
+- **Bot Logic Gates:** 
+  - `bot.py` line ~147: Auto Accept PHẢI được wrap trong `if config_manager.get("auto_accept_enabled"):`
+  - `bot.py` line ~165: Auto Reset PHẢI được wrap trong `if config_manager.get("auto_reset_enabled"):`
+- **Sound Notification:** Chỉ phát khi `auto_reset_enabled = True` (vì sound là cảnh báo trước reset).
+- **Default Values:** Cả 2 default = `True` để backward compatible với user cũ.
+- **Use Case:** User chơi với bạn, không phải chủ phòng → Tắt Auto Reset, Bật Auto Accept → Bot vẫn tự động accept trận nhưng không can thiệp queue.
+- **NEVER BREAK:** Khi sửa bot logic, PHẢI kiểm tra CẢ 2 conditions. KHÔNG được gộp lại thành 1 toggle.
+
+### 4. Technical Mechanics (The Backbone) 🦴
 - **Polling Rate:** 1 giây/lần.
 - **Auto-Minimize:** Sau khi Reset hàng chờ, bot PHẢI click nút Minimize của Client (nếu có tọa độ).
 - **Brightness Safety:** Dimmer PHẢI được kẹp (clamped) trong khoảng `1-100%`. Tuyệt đối không để user chỉnh về `0%`.
@@ -67,18 +78,19 @@ autoresetlol/
 ## CORE UNCHANGEABLE PROTOCOLS 📋
 
 ### 1. Feature Guard (Chống Hỏng Chức Năng Cũ)
-Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 5 trụ cột này:
+Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 6 trụ cột này:
 1. **Giant Timer UI**: Bộ đếm số (?/?) phải là trọng tâm, to rõ nhất.
 2. **Persistence**: Đổi giá trị Reset Threshold, tắt đi bật lại xem có giữ nguyên không.
 3. **Audio Volume**: Thanh trượt volume phải thực sự điều chỉnh được âm thanh thông báo.
 4. **Dimmer Control**: Chức năng làm tối màn hình phải hoạt động và reset về 100% khi thoát.
 5. **Info & Socials**: Nút 'i' PHẢI mở Modal Resolution. Footer PHẢI hiện tên tác giả là **Gohans** và dẫn về link Twitter `https://x.com/GohansVN`. Badge độ phân giải PHẢI có khả năng tương tác.
+6. **Feature Toggle Independence (v1.08+)**: Kiểm tra cả 2 toggle `Auto Accept Match` và `Auto Reset Queue` hoạt động ĐỘC LẬP. Tắt 1 cái KHÔNG được ảnh hưởng cái còn lại.
 
 ### 2. Landing the Plane Protocol
 Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
 1. **Cleanup**: Xóa mọi file rác, legacy registry (nếu có sự thay đổi về tên/version).
 2. **Build**: Tạo file `.spec` mới và build `.exe`.
-3. **Verify**: Chạy bản build, kiểm tra 5 trụ cột ở mục 1.
+3. **Verify**: Chạy bản build, kiểm tra 6 trụ cột ở mục 1.
 4. **Document**: Note lại vào chính file `AGENTS.md` này nếu có logic nào mới cần bảo vệ. BẮT BUỘC thực hiện cực kì nghiêm túc và thật KĨ sau khi Landing the Plane.
 5. **Ship**: `git push`, `bd sync`, và tạo GitHub Release.
 
