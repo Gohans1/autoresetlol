@@ -75,16 +75,33 @@ autoresetlol/
 - **Layout Integrity:** Khi thêm UI mới, Footer PHẢI được pack đầu tiên với `side="bottom"`. `main_container` (với `expand=True`) PHẢI được pack sau để Footer luôn hiển thị.
 - **Cursor Safety:** TUYỆT ĐỐI không dùng cursor không hỗ trợ trên Windows (ví dụ: `question_mark`). Chỉ dùng `hand2` cho các liên kết/nút có thể nhấp.
 
+### 5. Dual Dimmer Mode (v1.09+) ⚠️ CRITICAL
+- **Two Independent Modes:** `Gaming` và `Browsing` là 2 chế độ dimmer RIÊNG BIỆT.
+- **Config Keys:** `dimmer_mode`, `dimmer_gaming_value`, `dimmer_browsing_value` trong `config.json`.
+- **Mode Persistence:** Mỗi mode LƯU RIÊNG giá trị brightness của nó. Khi chuyển mode, giá trị slider PHẢI được cập nhật theo mode mới.
+- **Auto-Switch Callback:** Khi bot detect Champ Select, PHẢI gọi `on_champ_select_callback` để GUI tự động switch sang Gaming mode.
+- **Slider Save Logic:** Khi user kéo slider, PHẢI save cả `dimmer_value` chung VÀ giá trị riêng của mode hiện tại (`dimmer_gaming_value` hoặc `dimmer_browsing_value`).
+- **NEVER BREAK:** Khi sửa dimmer logic, PHẢI kiểm tra cả 2 modes hoạt động độc lập và persistence đúng.
+
+### 6. Sound Selection System (v1.09+)
+- **Config Key:** `selected_sound` - lưu key của sound được chọn (ví dụ: "notify", "chime", "bell").
+- **SOUND_OPTIONS Dict:** Định nghĩa trong `constants.py` với format `key: (display_name, relative_path)`.
+- **Sound Files Location:** `assets/sounds/` cho các WAV mới, `assets/notify.mp3` cho sound gốc.
+- **Play Sound Logic:** Bot và GUI đều PHẢI lookup sound path từ `SOUND_OPTIONS` bằng `selected_sound` key.
+- **Test Button:** GUI có nút `▶` để test sound với volume hiện tại trước khi select.
+
 ## CORE UNCHANGEABLE PROTOCOLS 📋
 
 ### 1. Feature Guard (Chống Hỏng Chức Năng Cũ)
-Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 6 trụ cột này:
+Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 8 trụ cột này:
 1. **Giant Timer UI**: Bộ đếm số (?/?) phải là trọng tâm, to rõ nhất.
 2. **Persistence**: Đổi giá trị Reset Threshold, tắt đi bật lại xem có giữ nguyên không.
 3. **Audio Volume**: Thanh trượt volume phải thực sự điều chỉnh được âm thanh thông báo.
 4. **Dimmer Control**: Chức năng làm tối màn hình phải hoạt động và reset về 100% khi thoát.
 5. **Info & Socials**: Nút 'i' PHẢI mở Modal Resolution. Footer PHẢI hiện tên tác giả là **Gohans** và dẫn về link Twitter `https://x.com/GohansVN`. Badge độ phân giải PHẢI có khả năng tương tác.
 6. **Feature Toggle Independence (v1.08+)**: Kiểm tra cả 2 toggle `Auto Accept Match` và `Auto Reset Queue` hoạt động ĐỘC LẬP. Tắt 1 cái KHÔNG được ảnh hưởng cái còn lại.
+7. **Dual Dimmer Mode (v1.09+)**: Chuyển đổi Gaming/Browsing PHẢI restore đúng brightness value đã save. Auto-switch khi vào champ select.
+8. **Sound Selection (v1.09+)**: Dropdown PHẢI hiển thị tên sound. Test button PHẢI phát đúng sound đã chọn với volume đúng.
 
 ### 2. Landing the Plane Protocol
 Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
