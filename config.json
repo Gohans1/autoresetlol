@@ -41,8 +41,14 @@
     "reset_time": 120,
     "dimmer_value": 100,
     "dimmer_enabled": true,
+    "dimmer_mode": "browsing",
+    "dimmer_gaming_value": 100,
+    "dimmer_browsing_value": 100,
     "reset_sound_enabled": true,
     "sound_volume": 50,
+    "selected_sound": "notify",
     "auto_startup_enabled": false,
-    "window_geometry": "360x540+52+52"
+    "auto_accept_enabled": true,
+    "auto_reset_enabled": true,
+    "window_geometry": "535x804+52+52"
 }

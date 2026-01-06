@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Tuple
 import os
 import sys
 
@@ -24,15 +24,14 @@ CONFIG_DIR = get_config_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = (
-        "v1.08"  # Feature Toggle Independence: Auto Accept & Auto Reset separated.
-    )
+    VERSION: str = "v1.09"  # Dual Dimmer Mode (Gaming/Browsing) + Sound Selection Menu
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
     CONFIG_FILE: str = os.path.join(CONFIG_DIR, "config.json")
     LOG_FILE: str = os.path.join(CONFIG_DIR, "autoresetlol.log")
     NOTIFY_SOUND: str = os.path.join(RESOURCE_DIR, "assets", "notify.mp3")
+    SOUNDS_DIR: str = os.path.join(RESOURCE_DIR, "assets", "sounds")
     APP_ICON: str = os.path.join(RESOURCE_DIR, "assets", "avatar.ico")
     APP_AVATAR: str = os.path.join(RESOURCE_DIR, "assets", "avatar.png")
     VERIFY_TIMEOUT: int = 25
@@ -88,10 +87,26 @@ class DefaultConfig:
     RESET_TIME: int = 120
     DIMMER_VALUE: int = 100
     DIMMER_ENABLED: bool = True
+    DIMMER_MODE: str = "browsing"  # "gaming" or "browsing"
+    DIMMER_GAMING_VALUE: int = 100  # Brightness for gaming mode
+    DIMMER_BROWSING_VALUE: int = 100  # Brightness for browsing mode
     RESET_SOUND_ENABLED: bool = True
     AUTO_STARTUP_ENABLED: bool = False
     AUTO_ACCEPT_ENABLED: bool = True  # Auto-accept match when found
     AUTO_RESET_ENABLED: bool = True  # Auto-reset queue after threshold
+    SELECTED_SOUND: str = "notify"  # Default sound file name (without extension)
+
+
+# Available notification sounds (bundled in assets/sounds/)
+# Format: key -> (display_name, relative_path)
+SOUND_OPTIONS: Dict[str, Tuple[str, str]] = {
+    "notify": ("Classic Ping", "assets/notify.mp3"),
+    "chime": ("Soft Chime", "assets/sounds/chime.wav"),
+    "alert": ("Alert Beep", "assets/sounds/alert.wav"),
+    "bell": ("Bell Ring", "assets/sounds/bell.wav"),
+    "ding": ("Quick Ding", "assets/sounds/ding.wav"),
+    "pop": ("Pop Sound", "assets/sounds/pop.wav"),
+}
 
 
 class UIStatus:

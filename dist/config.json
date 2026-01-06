@@ -38,11 +38,17 @@
         1621,
         108
     ],
-    "reset_time": 3,
-    "dimmer_value": 65,
+    "reset_time": 90,
+    "dimmer_value": 83,
     "dimmer_enabled": true,
+    "dimmer_mode": "browsing",
+    "dimmer_gaming_value": 100,
+    "dimmer_browsing_value": 100,
     "reset_sound_enabled": true,
-    "sound_volume": 100,
+    "sound_volume": 41,
+    "selected_sound": "notify",
     "auto_startup_enabled": false,
-    "window_geometry": "466x635+824+245"
+    "auto_accept_enabled": true,
+    "auto_reset_enabled": false,
+    "window_geometry": "535x766+1165+180"
 }

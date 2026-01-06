@@ -36,8 +36,12 @@ class BotConfig:
     reset_time: int = DefaultConfig.RESET_TIME
     dimmer_value: int = DefaultConfig.DIMMER_VALUE
     dimmer_enabled: bool = DefaultConfig.DIMMER_ENABLED
+    dimmer_mode: str = DefaultConfig.DIMMER_MODE  # "gaming" or "browsing"
+    dimmer_gaming_value: int = DefaultConfig.DIMMER_GAMING_VALUE
+    dimmer_browsing_value: int = DefaultConfig.DIMMER_BROWSING_VALUE
     reset_sound_enabled: bool = DefaultConfig.RESET_SOUND_ENABLED
     sound_volume: int = 50  # Default 50%
+    selected_sound: str = DefaultConfig.SELECTED_SOUND  # Sound file name
     auto_startup_enabled: bool = DefaultConfig.AUTO_STARTUP_ENABLED
     auto_accept_enabled: bool = DefaultConfig.AUTO_ACCEPT_ENABLED
     auto_reset_enabled: bool = DefaultConfig.AUTO_RESET_ENABLED

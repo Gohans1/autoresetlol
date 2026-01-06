@@ -12,7 +12,7 @@ from PIL import Image, ImageTk, ImageDraw
 from config import config_manager
 from bot import AntiFateBot
 from utils.windows import GammaController, set_autostart
-from constants import AppConfig, Colors, UIStatus
+from constants import AppConfig, Colors, UIStatus, SOUND_OPTIONS, RESOURCE_DIR
 from logger import logger
 
 # Set Theme
@@ -160,6 +160,8 @@ class AntiFateApp(ctk.CTk):
         self.auto_accept_enabled_var = ctk.BooleanVar(value=True)
         self.auto_reset_enabled_var = ctk.BooleanVar(value=True)
         self.sound_volume_var = tk.IntVar(value=50)
+        self.dimmer_mode_var = tk.StringVar(value="browsing")  # "gaming" or "browsing"
+        self.selected_sound_var = tk.StringVar(value="notify")
 
         self._setup_icons()
         self.create_widgets()
@@ -396,7 +398,7 @@ class AntiFateApp(ctk.CTk):
 
         # Volume Slider Row
         volume_row = ctk.CTkFrame(main_container, fg_color="transparent")
-        volume_row.pack(fill="x", pady=(0, 15), padx=5)
+        volume_row.pack(fill="x", pady=(0, 10), padx=5)
 
         self.volume_icon = ctk.CTkLabel(
             volume_row, text="🔊", font=(AppConfig.FONT_FAMILY, 14)
@@ -420,7 +422,53 @@ class AntiFateApp(ctk.CTk):
         self.volume_label = ctk.CTkLabel(
             volume_row, text="50%", font=(AppConfig.FONT_FAMILY, 11, "bold"), width=40
         )
-        self.volume_label.pack(side="right", padx=(5, 0))
+        self.volume_label.pack(side="left", padx=(5, 5))
+
+        # Sound Test Button
+        self.sound_test_btn = ctk.CTkButton(
+            volume_row,
+            text="▶",
+            width=28,
+            height=28,
+            corner_radius=6,
+            fg_color=Colors.SECONDARY,
+            hover_color=Colors.BORDER,
+            text_color=Colors.FG,
+            font=(AppConfig.FONT_FAMILY, 12),
+            command=self._play_test_sound,
+        )
+        self.sound_test_btn.pack(side="right")
+
+        # Sound Selection Row
+        sound_select_row = ctk.CTkFrame(main_container, fg_color="transparent")
+        sound_select_row.pack(fill="x", pady=(0, 15), padx=5)
+
+        ctk.CTkLabel(
+            sound_select_row,
+            text="🔔",
+            font=(AppConfig.FONT_FAMILY, 14),
+        ).pack(side="left", padx=(0, 10))
+
+        # Build sound options list
+        sound_display_names = [v[0] for v in SOUND_OPTIONS.values()]
+        self.sound_key_map = {v[0]: k for k, v in SOUND_OPTIONS.items()}
+
+        self.sound_option_menu = ctk.CTkOptionMenu(
+            sound_select_row,
+            values=sound_display_names,
+            command=self._on_sound_selected,
+            font=(AppConfig.FONT_FAMILY, 11),
+            fg_color=Colors.SECONDARY,
+            button_color=Colors.BORDER,
+            button_hover_color=Colors.RING,
+            dropdown_fg_color=Colors.CARD,
+            dropdown_hover_color=Colors.SECONDARY,
+            text_color=Colors.FG,
+            dropdown_text_color=Colors.FG,
+            corner_radius=6,
+            height=28,
+        )
+        self.sound_option_menu.pack(side="left", fill="x", expand=True)
 
         # Start animation
         self.animate_heartbeat()
@@ -487,6 +535,27 @@ class AntiFateApp(ctk.CTk):
             fg_color=Colors.SECONDARY,
         )
         self.dimmer_switch.pack(side="right")
+
+        # Dimmer Mode Toggle (Gaming/Browsing)
+        dimmer_mode_row = ctk.CTkFrame(settings_card, fg_color="transparent")
+        dimmer_mode_row.pack(fill="x", padx=15, pady=(0, 5))
+
+        self.dimmer_mode_segment = ctk.CTkSegmentedButton(
+            dimmer_mode_row,
+            values=["🎮 Gaming", "🌐 Browsing"],
+            variable=self.dimmer_mode_var,
+            command=self._on_dimmer_mode_changed,
+            font=(AppConfig.FONT_FAMILY, 10),
+            fg_color=Colors.SECONDARY,
+            selected_color=Colors.BLUE,
+            selected_hover_color=Colors.BLUE,
+            unselected_color=Colors.SECONDARY,
+            unselected_hover_color=Colors.BORDER,
+            text_color=Colors.FG,
+            corner_radius=6,
+            height=28,
+        )
+        self.dimmer_mode_segment.pack(fill="x")
 
         self.dimmer_slider = ctk.CTkSlider(
             settings_card,
@@ -646,6 +715,82 @@ class AntiFateApp(ctk.CTk):
         self.volume_label.configure(text=f"{vol}%")
         config_manager.set("sound_volume", vol)
 
+    def _on_dimmer_mode_changed(self, mode: str) -> None:
+        """Handle dimmer mode switch between Gaming and Browsing."""
+        # Save current slider value to the current mode before switching
+        current_slider_val = int(self.dimmer_slider.get())
+        old_mode = config_manager.get("dimmer_mode")
+
+        # Map display name to internal key
+        if "Gaming" in mode:
+            new_mode = "gaming"
+        else:
+            new_mode = "browsing"
+
+        # Save current value to the OLD mode
+        if old_mode == "gaming":
+            config_manager.set("dimmer_gaming_value", current_slider_val)
+        else:
+            config_manager.set("dimmer_browsing_value", current_slider_val)
+
+        # Switch mode
+        config_manager.set("dimmer_mode", new_mode)
+
+        # Load and apply value for the NEW mode
+        if new_mode == "gaming":
+            new_val = config_manager.get("dimmer_gaming_value") or 100
+        else:
+            new_val = config_manager.get("dimmer_browsing_value") or 100
+
+        self.dimmer_slider.set(float(new_val))
+        if self.dimmer_enabled_var.get():
+            self.dimmer.set_brightness(int(new_val))
+        config_manager.set("dimmer_value", int(new_val))
+        logger.info(f"Dimmer mode switched to: {new_mode} (brightness: {new_val}%)")
+
+    def _play_test_sound(self) -> None:
+        """Play the currently selected notification sound for testing."""
+        import threading
+        import ctypes
+
+        def _play():
+            try:
+                selected_key = config_manager.get("selected_sound") or "notify"
+                if selected_key in SOUND_OPTIONS:
+                    rel_path = SOUND_OPTIONS[selected_key][1]
+                    file_path = os.path.join(RESOURCE_DIR, rel_path)
+                else:
+                    file_path = AppConfig.NOTIFY_SOUND
+
+                volume = config_manager.get("sound_volume") or 50
+
+                # Use Windows MCI for playback
+                mci = ctypes.windll.winmm.mciSendStringW
+                alias = "test_sound"
+                mci(f"close {alias}", None, 0, 0)
+                mci(f'open "{file_path}" type mpegvideo alias {alias}', None, 0, 0)
+                mci(f"setaudio {alias} volume to {int(volume * 10)}", None, 0, 0)
+                mci(f"play {alias} wait", None, 0, 0)
+                mci(f"close {alias}", None, 0, 0)
+            except Exception as e:
+                logger.error(f"Failed to play test sound: {e}")
+
+        threading.Thread(target=_play, daemon=True).start()
+
+    def _on_sound_selected(self, display_name: str) -> None:
+        """Handle sound selection change."""
+        sound_key = self.sound_key_map.get(display_name, "notify")
+        config_manager.set("selected_sound", sound_key)
+        logger.info(f"Sound changed to: {sound_key} ({display_name})")
+
+    def switch_to_gaming_mode(self) -> None:
+        """Callback to switch to Gaming dimmer mode (called by bot on champ select)."""
+        current_mode = config_manager.get("dimmer_mode")
+        if current_mode != "gaming":
+            logger.info("Champ select detected - switching to Gaming dimmer mode")
+            self.after(0, lambda: self.dimmer_mode_segment.set("🎮 Gaming"))
+            self.after(10, lambda: self._on_dimmer_mode_changed("🎮 Gaming"))
+
     def _on_window_configure(self, event) -> None:
         """Capture window resize/move with debounce."""
         if event.widget == self:
@@ -671,11 +816,27 @@ class AntiFateApp(ctk.CTk):
         self.sound_volume_var.set(saved_vol)
         self.volume_label.configure(text=f"{saved_vol}%")
 
+        # Load Selected Sound
+        saved_sound_key = config_manager.get("selected_sound") or "notify"
+        if saved_sound_key in SOUND_OPTIONS:
+            display_name = SOUND_OPTIONS[saved_sound_key][0]
+            self.sound_option_menu.set(display_name)
+        self.selected_sound_var.set(saved_sound_key)
+
         # Load Dimmer Settings
         dimmer_val = config_manager.get("dimmer_value") or 100
         dimmer_enabled = config_manager.get("dimmer_enabled")
         if dimmer_enabled is None:
             dimmer_enabled = True
+
+        # Load Dimmer Mode
+        dimmer_mode = config_manager.get("dimmer_mode") or "browsing"
+        if dimmer_mode == "gaming":
+            self.dimmer_mode_segment.set("🎮 Gaming")
+            dimmer_val = config_manager.get("dimmer_gaming_value") or 100
+        else:
+            self.dimmer_mode_segment.set("🌐 Browsing")
+            dimmer_val = config_manager.get("dimmer_browsing_value") or 100
 
         self.dimmer_slider.set(float(dimmer_val))
         self.dimmer_enabled_var.set(dimmer_enabled)
@@ -759,6 +920,13 @@ class AntiFateApp(ctk.CTk):
         if self.dimmer_enabled_var.get():
             self.dimmer.set_brightness(int(value))
             config_manager.set("dimmer_value", int(value))
+
+            # Also save to the current mode's specific value
+            current_mode = config_manager.get("dimmer_mode") or "browsing"
+            if current_mode == "gaming":
+                config_manager.set("dimmer_gaming_value", int(value))
+            else:
+                config_manager.set("dimmer_browsing_value", int(value))
 
     def show_info_modal(self) -> None:
         """Trigger the professional info modal (Singleton pattern)."""
@@ -905,6 +1073,7 @@ class AntiFateApp(ctk.CTk):
             update_status_callback=self.update_status,
             on_stop_callback=self.on_bot_stop,
             on_success_callback=self.reset_dimmer,
+            on_champ_select_callback=self.switch_to_gaming_mode,
         )
         if self.bot:
             self.bot.start()

@@ -3,11 +3,12 @@ import time
 import winsound
 import pyautogui
 import ctypes
+import os
 from enum import Enum, auto
 from typing import Callable, Optional, Tuple
 
 from config import config_manager
-from constants import GameInfo, UIStatus, Colors, AppConfig
+from constants import GameInfo, UIStatus, Colors, AppConfig, SOUND_OPTIONS, RESOURCE_DIR
 from logger import logger
 from utils.windows import (
     find_window_by_title,
@@ -28,11 +29,13 @@ class AntiFateBot(threading.Thread):
         update_status_callback: Callable[[str, str], None],
         on_stop_callback: Optional[Callable[[str, str], None]],
         on_success_callback: Optional[Callable[[], None]] = None,
+        on_champ_select_callback: Optional[Callable[[], None]] = None,
     ):
         super().__init__()
         self.update_status_callback = update_status_callback
         self.on_stop_callback = on_stop_callback
         self.on_success_callback = on_success_callback
+        self.on_champ_select_callback = on_champ_select_callback
         self.running: bool = False
         self.state: BotState = BotState.SEARCHING
         self.start_search_time: float = 0
@@ -103,6 +106,8 @@ class AntiFateBot(threading.Thread):
                 self.state = BotState.STANDBY
                 if self.on_success_callback:
                     self.on_success_callback()
+                if self.on_champ_select_callback:
+                    self.on_champ_select_callback()
                 self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
                 # Removed sleep, UI should handle state-based colors
                 return
@@ -119,10 +124,18 @@ class AntiFateBot(threading.Thread):
 
                 def _play():
                     try:
-                        # Use Windows MCI to play MP3 with volume control
+                        # Use Windows MCI to play MP3/WAV with volume control
                         mci = ctypes.windll.winmm.mciSendStringW
                         alias = "bot_notify"
-                        file_path = AppConfig.NOTIFY_SOUND
+
+                        # Get selected sound file path
+                        selected_key = config_manager.get("selected_sound") or "notify"
+                        if selected_key in SOUND_OPTIONS:
+                            rel_path = SOUND_OPTIONS[selected_key][1]
+                            file_path = os.path.join(RESOURCE_DIR, rel_path)
+                        else:
+                            file_path = AppConfig.NOTIFY_SOUND
+
                         volume = config_manager.get("sound_volume") or 50
 
                         mci(f"close {alias}", None, 0, 0)
@@ -221,6 +234,8 @@ class AntiFateBot(threading.Thread):
                 self.state = BotState.STANDBY
                 if self.on_success_callback:
                     self.on_success_callback()
+                if self.on_champ_select_callback:
+                    self.on_champ_select_callback()
                 self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
                 return
 
