@@ -36,7 +36,11 @@ autoresetlol/
 |--------|------|----------|------|
 | `AntiFateBot` | Class | `bot.py` | Threaded worker managing bot lifecycle and pixel detection |
 | `AntiFateApp` | Class | `gui.py` | Main UI application class |
-| `BotConfig` | Dataclass | `config.py` | Typed configuration structure |
+| `BotConfig` | Dataclass | `config.py` | Global config + profile references |
+| `ProfileConfig` | Dataclass | `config.py` | Profile-specific coords/colors (v1.10+) |
+| `ConfigManager` | Class | `config.py` | Singleton config manager with profile API |
+| `SettingsModal` | Class | `gui.py` | Advanced settings modal with coord picker (v1.10+) |
+| `PROFILE_KEYS` | List | `config.py` | List of keys that are profile-specific |
 | `GammaController` | Class | `utils/windows.py` | Hardware-level screen dimming management |
 | `set_autostart` | Function | `utils/windows.py` | Windows Registry-based startup logic |
 
@@ -98,7 +102,8 @@ autoresetlol/
   - `in_queue_pixel_pos`, `in_queue_pixel_color`
   - `accept_match_pixel_pos`, `accept_match_pixel_color`
   - `champ_select_pixel_pos`, `champ_select_pixel_color`
-- **Auto Migration:** Config cũ (v1.09-) được tự động migrate sang Profile 1 khi load.
+- **PROFILE_KEYS Constant:** Định nghĩa trong `config.py` - KHI THÊM COORD/COLOR MỚI, PHẢI thêm vào list này.
+- **Auto Migration:** Config cũ (v1.09-) được tự động migrate sang Profile 1 khi load. Detection: `"profiles" not in data and "find_match_button_pos" in data`.
 - **ConfigManager API:**
   - `get_profile_names()` → List[str]
   - `switch_profile(name)` → bool
@@ -106,6 +111,23 @@ autoresetlol/
   - `rename_profile(old_name, new_name)` → bool
   - `delete_profile(name)` → bool (không xóa được profile cuối cùng)
 - **Hot-Reload:** Bot đọc coords từ `config_manager.get()` mỗi loop, nên đổi profile sẽ apply ngay.
+- **Config Structure (v1.10+):**
+  ```json
+  {
+    "current_profile": "Profile 1",
+    "profiles": {
+      "Profile 1": {
+        "find_match_button_pos": [673, 954],
+        "cancel_button_pos": [1704, 214],
+        ...
+      },
+      "LoL TQ": { ... }
+    },
+    "reset_time": 90,
+    "dimmer_value": 57,
+    ...
+  }
+  ```
 - **NEVER BREAK:** Khi sửa config logic, PHẢI ensure `PROFILE_KEYS` trong `config.py` được resolve đúng qua `get()`.
 
 ### 8. Auto Dimmer Switch Toggle (v1.10+)
