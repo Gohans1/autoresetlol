@@ -1,6 +1,6 @@
 # autoresetlol - Agent Knowledge Base & Rules
 
-**Generated:** 2026-01-04T01:50:00Z
+**Generated:** 2026-01-09T01:55:00Z
 **Branch:** main
 
 ## OVERVIEW 🤖
@@ -90,6 +90,48 @@ autoresetlol/
 - **Play Sound Logic:** Bot và GUI đều PHẢI lookup sound path từ `SOUND_OPTIONS` bằng `selected_sound` key.
 - **Test Button:** GUI có nút `▶` để test sound với volume hiện tại trước khi select.
 
+### 7. Profile System (v1.10+) ⚠️ CRITICAL
+- **Multi-Profile Support:** App hỗ trợ nhiều profiles cho các LoL client khác nhau (VN, TQ, etc.).
+- **Config Keys:** `current_profile` (tên profile đang dùng), `profiles` (Dict chứa tất cả profiles).
+- **Profile-Specific Keys:** Các key sau được lưu RIÊNG cho mỗi profile:
+  - `find_match_button_pos`, `cancel_button_pos`, `minimize_btn_pos`
+  - `in_queue_pixel_pos`, `in_queue_pixel_color`
+  - `accept_match_pixel_pos`, `accept_match_pixel_color`
+  - `champ_select_pixel_pos`, `champ_select_pixel_color`
+- **Auto Migration:** Config cũ (v1.09-) được tự động migrate sang Profile 1 khi load.
+- **ConfigManager API:**
+  - `get_profile_names()` → List[str]
+  - `switch_profile(name)` → bool
+  - `create_profile(name, copy_from=None)` → bool
+  - `rename_profile(old_name, new_name)` → bool
+  - `delete_profile(name)` → bool (không xóa được profile cuối cùng)
+- **Hot-Reload:** Bot đọc coords từ `config_manager.get()` mỗi loop, nên đổi profile sẽ apply ngay.
+- **NEVER BREAK:** Khi sửa config logic, PHẢI ensure `PROFILE_KEYS` trong `config.py` được resolve đúng qua `get()`.
+
+### 8. Auto Dimmer Switch Toggle (v1.10+)
+- **Config Key:** `auto_dimmer_switch_enabled` (default: True)
+- **Purpose:** Cho phép user TẮT tự động chuyển sang Gaming mode khi detect champ select.
+- **Use Case:** User muốn giữ màn hình tối ngay cả khi đang chơi game.
+- **Location:** Toggle trong Settings Modal, cũng được check trong `switch_to_gaming_mode()`.
+- **NEVER BREAK:** Khi sửa dimmer auto-switch, PHẢI check `config_manager.get("auto_dimmer_switch_enabled")` trước.
+
+### 9. Settings Modal & Coord Picker (v1.10+)
+- **Settings Button:** Nút ⚙️ ở góc trái-trên Status Card (đối xứng với nút "i").
+- **SettingsModal Class:** Singleton modal (~800 lines) trong `gui.py`.
+- **Sections:**
+  - Profile Management: Dropdown + Rename/New/Delete buttons
+  - Coordinates: 6 entries với X/Y + Pick button
+  - Colors: 3 entries với R/G/B + color preview + Pick button
+  - Auto Dimmer Switch toggle
+- **Pick Mode:** Khi nhấn "📍 Pick":
+  1. Modal ẩn đi
+  2. Overlay fullscreen transparent xuất hiện
+  3. User click anywhere → capture position + color
+  4. Auto-save vào config
+  5. Modal hiện lại
+- **Color Preview:** Small square hiển thị màu RGB live preview.
+- **NEVER BREAK:** Khi sửa SettingsModal, PHẢI ensure pick overlay xử lý đúng trên multi-monitor.
+
 ## CORE UNCHANGEABLE PROTOCOLS 📋
 
 ### 1. Feature Guard (Chống Hỏng Chức Năng Cũ)
@@ -102,6 +144,8 @@ Mỗi khi sửa đổi bất kỳ phần nào, PHẢI kiểm tra lại 8 trụ c
 6. **Feature Toggle Independence (v1.08+)**: Kiểm tra cả 2 toggle `Auto Accept Match` và `Auto Reset Queue` hoạt động ĐỘC LẬP. Tắt 1 cái KHÔNG được ảnh hưởng cái còn lại.
 7. **Dual Dimmer Mode (v1.09+)**: Chuyển đổi Gaming/Browsing PHẢI restore đúng brightness value đã save. Auto-switch khi vào champ select.
 8. **Sound Selection (v1.09+)**: Dropdown PHẢI hiển thị tên sound. Test button PHẢI phát đúng sound đã chọn với volume đúng.
+9. **Profile System (v1.10+)**: Đổi profile PHẢI apply coords ngay. Settings Modal PHẢI mở và đóng mượt. Pick mode PHẢI capture đúng position + color.
+10. **Auto Dimmer Switch (v1.10+)**: Toggle TẮT thì KHÔNG được auto-switch khi vào champ select. Browsing value KHÔNG được bị reset về 100.
 
 ### 2. Landing the Plane Protocol
 Khi hoàn thành một version, PHẢI thực hiện theo thứ tự:
@@ -125,11 +169,11 @@ uv run python main.py
 # Install Deps
 uv pip install -r pyproject.toml
 
-# Build (Example for v1.06)
-uv run pyinstaller AntiFateEngine_v1.06.spec
+# Build (Example for v1.10)
+uv run pyinstaller AntiFateEngine_v1.10.spec
 
 # Release (MANDATORY)
-gh release create v1.06 dist/AntiFateEngine_v1.06.exe --title "Release v1.06" --notes "Professional UI: Fixed Footer, Interactive Badge, and Branding to 'Gohans'."
+gh release create v1.10 dist/AntiFateEngine_v1.10.exe --title "Release v1.10" --notes "Profile System + Auto Dimmer Switch Toggle + Settings Modal with Coord/Color Picker."
 ```
 
 ## NOTES

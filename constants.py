@@ -24,7 +24,9 @@ CONFIG_DIR = get_config_dir()
 
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
-    VERSION: str = "v1.09"  # Dual Dimmer Mode (Gaming/Browsing) + Sound Selection Menu
+    VERSION: str = (
+        "v1.10"  # Profile System + Auto Dimmer Switch Toggle + Settings Modal
+    )
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
@@ -90,11 +92,15 @@ class DefaultConfig:
     DIMMER_MODE: str = "browsing"  # "gaming" or "browsing"
     DIMMER_GAMING_VALUE: int = 100  # Brightness for gaming mode
     DIMMER_BROWSING_VALUE: int = 100  # Brightness for browsing mode
+    AUTO_DIMMER_SWITCH_ENABLED: bool = (
+        True  # Auto switch to gaming mode on champ select
+    )
     RESET_SOUND_ENABLED: bool = True
     AUTO_STARTUP_ENABLED: bool = False
     AUTO_ACCEPT_ENABLED: bool = True  # Auto-accept match when found
     AUTO_RESET_ENABLED: bool = True  # Auto-reset queue after threshold
     SELECTED_SOUND: str = "notify"  # Default sound file name (without extension)
+    CURRENT_PROFILE: str = "Profile 1"  # Active profile name
 
 
 # Available notification sounds (bundled in assets/sounds/)

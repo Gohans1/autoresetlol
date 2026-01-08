@@ -101,6 +101,782 @@ class InfoModal(ctk.CTkToplevel):
         ).pack(fill="x")
 
 
+class SettingsModal(ctk.CTkToplevel):
+    """Advanced Settings Modal for coordinate/color configuration and profile management."""
+
+    # Coordinate settings: (config_key, label)
+    COORD_SETTINGS = [
+        ("find_match_button_pos", "Find Match Button"),
+        ("cancel_button_pos", "Cancel Button"),
+        ("minimize_btn_pos", "Minimize Button"),
+        ("in_queue_pixel_pos", "Queue Detection Pixel"),
+        ("accept_match_pixel_pos", "Accept Button Pixel"),
+        ("champ_select_pixel_pos", "Champ Select Pixel"),
+    ]
+
+    # Color settings: (config_key, label)
+    COLOR_SETTINGS = [
+        ("in_queue_pixel_color", "Queue Detection Color"),
+        ("accept_match_pixel_color", "Accept Button Color"),
+        ("champ_select_pixel_color", "Champ Select Color"),
+    ]
+
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self.master_app = master
+        self.title("Advanced Settings")
+        self.geometry("520x650")
+        self.resizable(False, True)
+        self.configure(fg_color=Colors.BG)
+
+        # Center over parent
+        self.update_idletasks()
+        parent_x = master.winfo_x()
+        parent_y = master.winfo_y()
+        parent_w = master.winfo_width()
+        parent_h = master.winfo_height()
+
+        x = parent_x + (parent_w // 2) - (520 // 2)
+        y = parent_y + (parent_h // 2) - (650 // 2)
+        self.geometry(f"+{x}+{y}")
+
+        self.attributes("-topmost", True)
+        self.focus_set()
+
+        # Storage for entry widgets
+        self.coord_entries: Dict[str, tuple] = {}  # key -> (x_entry, y_entry)
+        self.color_entries: Dict[
+            str, tuple
+        ] = {}  # key -> (r_entry, g_entry, b_entry, preview_frame)
+
+        # Pick mode state
+        self._pick_mode_active = False
+        self._pick_target_key: Optional[str] = None
+        self._pick_overlay: Optional[tk.Toplevel] = None
+
+        self._create_widgets()
+        self._load_current_values()
+
+    def _create_widgets(self) -> None:
+        """Build the modal UI."""
+        # Header with title and close button
+        header = ctk.CTkFrame(self, fg_color=Colors.SECONDARY, height=50)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+
+        ctk.CTkLabel(
+            header,
+            text="⚙️ Advanced Settings",
+            font=(AppConfig.FONT_FAMILY, 16, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(side="left", padx=15, pady=10)
+
+        close_btn = ctk.CTkButton(
+            header,
+            text="✕",
+            width=30,
+            height=30,
+            corner_radius=6,
+            fg_color="transparent",
+            text_color=Colors.MUTED_FG,
+            hover_color=Colors.RED,
+            font=(AppConfig.FONT_FAMILY, 14, "bold"),
+            command=self.destroy,
+        )
+        close_btn.pack(side="right", padx=10)
+
+        # Main scrollable container
+        main_scroll = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            scrollbar_button_color=Colors.BORDER,
+            scrollbar_button_hover_color=Colors.RING,
+        )
+        main_scroll.pack(fill="both", expand=True, padx=15, pady=15)
+
+        # === Profile Section ===
+        self._create_profile_section(main_scroll)
+
+        # Separator
+        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
+            fill="x", pady=15
+        )
+
+        # === Coordinates Section ===
+        self._create_coordinates_section(main_scroll)
+
+        # Separator
+        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
+            fill="x", pady=15
+        )
+
+        # === Color Section ===
+        self._create_color_section(main_scroll)
+
+        # Separator
+        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
+            fill="x", pady=15
+        )
+
+        # === Auto Dimmer Switch Toggle ===
+        self._create_auto_dimmer_section(main_scroll)
+
+        # Footer
+        footer = ctk.CTkFrame(self, fg_color=Colors.SECONDARY, height=50)
+        footer.pack(fill="x", side="bottom")
+        footer.pack_propagate(False)
+
+        ctk.CTkButton(
+            footer,
+            text="Save & Close",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            height=35,
+            fg_color=Colors.GREEN,
+            text_color=Colors.BG,
+            hover_color="#6b7f2e",
+            corner_radius=6,
+            command=self._save_and_close,
+        ).pack(side="right", padx=15, pady=8)
+
+        ctk.CTkLabel(
+            footer,
+            text="Changes auto-save on pick",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(side="left", padx=15, pady=8)
+
+    def _create_profile_section(self, parent) -> None:
+        """Create profile management section."""
+        section = CardFrame(parent)
+        section.pack(fill="x", pady=(0, 5))
+
+        # Section header
+        ctk.CTkLabel(
+            section,
+            text="📁 Profile Management",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        # Profile selection row
+        select_row = ctk.CTkFrame(section, fg_color="transparent")
+        select_row.pack(fill="x", padx=15, pady=5)
+
+        ctk.CTkLabel(
+            select_row,
+            text="Current:",
+            font=(AppConfig.FONT_FAMILY, 11),
+            text_color=Colors.FG,
+        ).pack(side="left", padx=(0, 10))
+
+        self.profile_dropdown = ctk.CTkOptionMenu(
+            select_row,
+            values=config_manager.get_profile_names(),
+            command=self._on_profile_changed,
+            font=(AppConfig.FONT_FAMILY, 11),
+            fg_color=Colors.SECONDARY,
+            button_color=Colors.BORDER,
+            button_hover_color=Colors.RING,
+            dropdown_fg_color=Colors.CARD,
+            dropdown_hover_color=Colors.SECONDARY,
+            text_color=Colors.FG,
+            dropdown_text_color=Colors.FG,
+            corner_radius=6,
+            width=150,
+            height=28,
+        )
+        self.profile_dropdown.set(config_manager.get_current_profile())
+        self.profile_dropdown.pack(side="left", fill="x", expand=True)
+
+        # Action buttons row
+        btn_row = ctk.CTkFrame(section, fg_color="transparent")
+        btn_row.pack(fill="x", padx=15, pady=(5, 10))
+
+        ctk.CTkButton(
+            btn_row,
+            text="✏️ Rename",
+            width=80,
+            height=28,
+            corner_radius=6,
+            fg_color=Colors.SECONDARY,
+            text_color=Colors.FG,
+            hover_color=Colors.BORDER,
+            font=(AppConfig.FONT_FAMILY, 10),
+            command=self._rename_profile,
+        ).pack(side="left", padx=(0, 5))
+
+        ctk.CTkButton(
+            btn_row,
+            text="➕ New",
+            width=70,
+            height=28,
+            corner_radius=6,
+            fg_color=Colors.BLUE,
+            text_color=Colors.FG,
+            hover_color="#3a7ab0",
+            font=(AppConfig.FONT_FAMILY, 10),
+            command=self._create_new_profile,
+        ).pack(side="left", padx=(0, 5))
+
+        ctk.CTkButton(
+            btn_row,
+            text="🗑️ Delete",
+            width=75,
+            height=28,
+            corner_radius=6,
+            fg_color=Colors.RED,
+            text_color=Colors.FG,
+            hover_color="#c4493f",
+            font=(AppConfig.FONT_FAMILY, 10),
+            command=self._delete_profile,
+        ).pack(side="left")
+
+    def _create_coordinates_section(self, parent) -> None:
+        """Create coordinates configuration section."""
+        section = CardFrame(parent)
+        section.pack(fill="x", pady=5)
+
+        # Section header
+        ctk.CTkLabel(
+            section,
+            text="📍 Coordinates",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        # Column headers
+        header_row = ctk.CTkFrame(section, fg_color="transparent")
+        header_row.pack(fill="x", padx=15, pady=2)
+
+        ctk.CTkLabel(
+            header_row,
+            text="Setting",
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            text_color=Colors.MUTED_FG,
+            width=140,
+            anchor="w",
+        ).pack(side="left")
+
+        ctk.CTkLabel(
+            header_row,
+            text="X",
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            text_color=Colors.MUTED_FG,
+            width=60,
+        ).pack(side="left", padx=5)
+
+        ctk.CTkLabel(
+            header_row,
+            text="Y",
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            text_color=Colors.MUTED_FG,
+            width=60,
+        ).pack(side="left", padx=5)
+
+        # Coordinate entries
+        for config_key, label in self.COORD_SETTINGS:
+            row = ctk.CTkFrame(section, fg_color="transparent")
+            row.pack(fill="x", padx=15, pady=3)
+
+            ctk.CTkLabel(
+                row,
+                text=label,
+                font=(AppConfig.FONT_FAMILY, 10),
+                text_color=Colors.FG,
+                width=140,
+                anchor="w",
+            ).pack(side="left")
+
+            x_entry = ctk.CTkEntry(
+                row,
+                width=60,
+                height=26,
+                font=("JetBrains Mono", 10),
+                fg_color=Colors.SECONDARY,
+                border_color=Colors.BORDER,
+                text_color=Colors.PRIMARY,
+                justify="center",
+                corner_radius=4,
+            )
+            x_entry.pack(side="left", padx=5)
+
+            y_entry = ctk.CTkEntry(
+                row,
+                width=60,
+                height=26,
+                font=("JetBrains Mono", 10),
+                fg_color=Colors.SECONDARY,
+                border_color=Colors.BORDER,
+                text_color=Colors.PRIMARY,
+                justify="center",
+                corner_radius=4,
+            )
+            y_entry.pack(side="left", padx=5)
+
+            pick_btn = ctk.CTkButton(
+                row,
+                text="📍 Pick",
+                width=60,
+                height=26,
+                corner_radius=4,
+                fg_color=Colors.BLUE,
+                text_color=Colors.FG,
+                hover_color="#3a7ab0",
+                font=(AppConfig.FONT_FAMILY, 10),
+                command=lambda k=config_key: self._start_pick_mode(k),
+            )
+            pick_btn.pack(side="left", padx=(10, 0))
+
+            self.coord_entries[config_key] = (x_entry, y_entry)
+
+        # Add padding at bottom
+        ctk.CTkFrame(section, fg_color="transparent", height=5).pack()
+
+    def _create_color_section(self, parent) -> None:
+        """Create color configuration section."""
+        section = CardFrame(parent)
+        section.pack(fill="x", pady=5)
+
+        # Section header
+        ctk.CTkLabel(
+            section,
+            text="🎨 Colors",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        # Column headers
+        header_row = ctk.CTkFrame(section, fg_color="transparent")
+        header_row.pack(fill="x", padx=15, pady=2)
+
+        ctk.CTkLabel(
+            header_row,
+            text="Setting",
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            text_color=Colors.MUTED_FG,
+            width=130,
+            anchor="w",
+        ).pack(side="left")
+
+        for lbl in ["R", "G", "B"]:
+            ctk.CTkLabel(
+                header_row,
+                text=lbl,
+                font=(AppConfig.FONT_FAMILY, 9, "bold"),
+                text_color=Colors.MUTED_FG,
+                width=40,
+            ).pack(side="left", padx=2)
+
+        # Color entries
+        for config_key, label in self.COLOR_SETTINGS:
+            row = ctk.CTkFrame(section, fg_color="transparent")
+            row.pack(fill="x", padx=15, pady=3)
+
+            ctk.CTkLabel(
+                row,
+                text=label,
+                font=(AppConfig.FONT_FAMILY, 10),
+                text_color=Colors.FG,
+                width=130,
+                anchor="w",
+            ).pack(side="left")
+
+            r_entry = ctk.CTkEntry(
+                row,
+                width=40,
+                height=26,
+                font=("JetBrains Mono", 10),
+                fg_color=Colors.SECONDARY,
+                border_color=Colors.BORDER,
+                text_color=Colors.RED,
+                justify="center",
+                corner_radius=4,
+            )
+            r_entry.pack(side="left", padx=2)
+
+            g_entry = ctk.CTkEntry(
+                row,
+                width=40,
+                height=26,
+                font=("JetBrains Mono", 10),
+                fg_color=Colors.SECONDARY,
+                border_color=Colors.BORDER,
+                text_color=Colors.GREEN,
+                justify="center",
+                corner_radius=4,
+            )
+            g_entry.pack(side="left", padx=2)
+
+            b_entry = ctk.CTkEntry(
+                row,
+                width=40,
+                height=26,
+                font=("JetBrains Mono", 10),
+                fg_color=Colors.SECONDARY,
+                border_color=Colors.BORDER,
+                text_color=Colors.BLUE,
+                justify="center",
+                corner_radius=4,
+            )
+            b_entry.pack(side="left", padx=2)
+
+            # Color preview square
+            preview = ctk.CTkFrame(
+                row,
+                width=26,
+                height=26,
+                corner_radius=4,
+                fg_color=Colors.SECONDARY,
+                border_color=Colors.BORDER,
+                border_width=1,
+            )
+            preview.pack(side="left", padx=(5, 5))
+            preview.pack_propagate(False)
+
+            pick_btn = ctk.CTkButton(
+                row,
+                text="📍 Pick",
+                width=60,
+                height=26,
+                corner_radius=4,
+                fg_color=Colors.BLUE,
+                text_color=Colors.FG,
+                hover_color="#3a7ab0",
+                font=(AppConfig.FONT_FAMILY, 10),
+                command=lambda k=config_key: self._start_pick_mode(k),
+            )
+            pick_btn.pack(side="left", padx=(5, 0))
+
+            self.color_entries[config_key] = (r_entry, g_entry, b_entry, preview)
+
+            # Bind entry changes to update preview
+            for entry in (r_entry, g_entry, b_entry):
+                entry.bind(
+                    "<KeyRelease>",
+                    lambda e, k=config_key: self._update_color_preview(k),
+                )
+
+        # Add padding at bottom
+        ctk.CTkFrame(section, fg_color="transparent", height=5).pack()
+
+    def _create_auto_dimmer_section(self, parent) -> None:
+        """Create auto dimmer switch toggle section."""
+        section = CardFrame(parent)
+        section.pack(fill="x", pady=5)
+
+        row = ctk.CTkFrame(section, fg_color="transparent")
+        row.pack(fill="x", padx=15, pady=10)
+
+        ctk.CTkLabel(
+            row,
+            text="🎮 Auto switch to Gaming mode on Champ Select",
+            font=(AppConfig.FONT_FAMILY, 11),
+            text_color=Colors.FG,
+        ).pack(side="left")
+
+        self.auto_dimmer_switch_var = ctk.BooleanVar(
+            value=config_manager.get("auto_dimmer_switch_enabled") or True
+        )
+
+        self.auto_dimmer_switch = ctk.CTkSwitch(
+            row,
+            text="",
+            width=40,
+            variable=self.auto_dimmer_switch_var,
+            command=self._on_auto_dimmer_switch_changed,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
+        )
+        self.auto_dimmer_switch.pack(side="right")
+
+    def _load_current_values(self) -> None:
+        """Load current config values into entries."""
+        # Load coordinates
+        for config_key, (x_entry, y_entry) in self.coord_entries.items():
+            pos = config_manager.get(config_key)
+            if pos and len(pos) >= 2:
+                x_entry.delete(0, "end")
+                x_entry.insert(0, str(pos[0]))
+                y_entry.delete(0, "end")
+                y_entry.insert(0, str(pos[1]))
+
+        # Load colors
+        for config_key, (
+            r_entry,
+            g_entry,
+            b_entry,
+            preview,
+        ) in self.color_entries.items():
+            color = config_manager.get(config_key)
+            if color and len(color) >= 3:
+                r_entry.delete(0, "end")
+                r_entry.insert(0, str(color[0]))
+                g_entry.delete(0, "end")
+                g_entry.insert(0, str(color[1]))
+                b_entry.delete(0, "end")
+                b_entry.insert(0, str(color[2]))
+                self._update_color_preview(config_key)
+
+    def _update_color_preview(self, config_key: str) -> None:
+        """Update the color preview square based on RGB entries."""
+        if config_key not in self.color_entries:
+            return
+
+        r_entry, g_entry, b_entry, preview = self.color_entries[config_key]
+        try:
+            r = int(r_entry.get() or 0)
+            g = int(g_entry.get() or 0)
+            b = int(b_entry.get() or 0)
+            # Clamp values
+            r = max(0, min(255, r))
+            g = max(0, min(255, g))
+            b = max(0, min(255, b))
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            preview.configure(fg_color=hex_color)
+        except ValueError:
+            preview.configure(fg_color=Colors.SECONDARY)
+
+    def _on_profile_changed(self, profile_name: str) -> None:
+        """Handle profile selection change."""
+        config_manager.switch_profile(profile_name)
+        self._load_current_values()
+        logger.info(f"Switched to profile: {profile_name}")
+
+    def _refresh_profile_dropdown(self) -> None:
+        """Refresh the profile dropdown with current profiles."""
+        profiles = config_manager.get_profile_names()
+        self.profile_dropdown.configure(values=profiles)
+        self.profile_dropdown.set(config_manager.get_current_profile())
+
+    def _rename_profile(self) -> None:
+        """Open dialog to rename current profile."""
+        current = config_manager.get_current_profile()
+
+        dialog = ctk.CTkInputDialog(
+            text=f"New name for '{current}':",
+            title="Rename Profile",
+        )
+        new_name = dialog.get_input()
+
+        if new_name and new_name.strip() and new_name != current:
+            if config_manager.rename_profile(current, new_name.strip()):
+                self._refresh_profile_dropdown()
+                messagebox.showinfo("Success", f"Profile renamed to '{new_name}'")
+            else:
+                messagebox.showerror(
+                    "Error", "Failed to rename profile. Name may already exist."
+                )
+
+    def _create_new_profile(self) -> None:
+        """Create a new profile."""
+        # Generate next profile number
+        existing = config_manager.get_profile_names()
+        num = len(existing) + 1
+        new_name = f"Profile {num}"
+
+        # Ensure unique name
+        while new_name in existing:
+            num += 1
+            new_name = f"Profile {num}"
+
+        if config_manager.create_profile(
+            new_name, copy_from=config_manager.get_current_profile()
+        ):
+            config_manager.switch_profile(new_name)
+            self._refresh_profile_dropdown()
+            self._load_current_values()
+            messagebox.showinfo("Success", f"Created profile '{new_name}'")
+
+    def _delete_profile(self) -> None:
+        """Delete current profile with confirmation."""
+        current = config_manager.get_current_profile()
+        profiles = config_manager.get_profile_names()
+
+        if len(profiles) <= 1:
+            messagebox.showwarning("Cannot Delete", "Cannot delete the last profile.")
+            return
+
+        if messagebox.askyesno(
+            "Confirm Delete", f"Delete profile '{current}'?\nThis cannot be undone."
+        ):
+            if config_manager.delete_profile(current):
+                self._refresh_profile_dropdown()
+                self._load_current_values()
+                messagebox.showinfo("Deleted", f"Profile '{current}' deleted.")
+
+    def _on_auto_dimmer_switch_changed(self) -> None:
+        """Handle auto dimmer switch toggle."""
+        is_enabled = self.auto_dimmer_switch_var.get()
+        config_manager.set("auto_dimmer_switch_enabled", is_enabled)
+        logger.info(f"Auto dimmer switch toggled: {is_enabled}")
+
+    def _start_pick_mode(self, config_key: str) -> None:
+        """Start the screen pick mode for a coordinate/color."""
+        self._pick_target_key = config_key
+        self._pick_mode_active = True
+
+        # Hide this modal
+        self.withdraw()
+
+        # Create a fullscreen transparent overlay for pick mode
+        self._pick_overlay = tk.Toplevel()
+        self._pick_overlay.attributes("-fullscreen", True)
+        self._pick_overlay.attributes("-topmost", True)
+        self._pick_overlay.attributes("-alpha", 0.01)  # Nearly invisible
+        self._pick_overlay.configure(cursor="crosshair")
+        self._pick_overlay.bind("<Button-1>", self._on_pick_click)
+        self._pick_overlay.bind("<Escape>", self._cancel_pick_mode)
+
+        # Focus the overlay
+        self._pick_overlay.focus_force()
+
+    def _on_pick_click(self, event) -> None:
+        """Handle click during pick mode."""
+        if not self._pick_mode_active:
+            return
+
+        try:
+            # Get mouse position
+            x, y = pyautogui.position()
+
+            # Get pixel color at position
+            try:
+                pixel = pyautogui.pixel(x, y)
+                r, g, b = pixel
+            except Exception:
+                r, g, b = 0, 0, 0
+
+            # Determine if this is a coord-only or coord+color pick
+            config_key = self._pick_target_key
+
+            if config_key in self.coord_entries:
+                # Update coordinate entries
+                x_entry, y_entry = self.coord_entries[config_key]
+                x_entry.delete(0, "end")
+                x_entry.insert(0, str(x))
+                y_entry.delete(0, "end")
+                y_entry.insert(0, str(y))
+
+                # Save to config
+                config_manager.set(config_key, [x, y])
+
+            # For pixel detection settings, also update associated color
+            # Map coord key to color key
+            coord_to_color_map = {
+                "in_queue_pixel_pos": "in_queue_pixel_color",
+                "accept_match_pixel_pos": "accept_match_pixel_color",
+                "champ_select_pixel_pos": "champ_select_pixel_color",
+            }
+
+            if config_key in coord_to_color_map:
+                color_key = coord_to_color_map[config_key]
+                if color_key in self.color_entries:
+                    r_entry, g_entry, b_entry, preview = self.color_entries[color_key]
+                    r_entry.delete(0, "end")
+                    r_entry.insert(0, str(r))
+                    g_entry.delete(0, "end")
+                    g_entry.insert(0, str(g))
+                    b_entry.delete(0, "end")
+                    b_entry.insert(0, str(b))
+                    self._update_color_preview(color_key)
+
+                    # Save color to config
+                    config_manager.set(color_key, [r, g, b])
+
+            # Also handle if picking from color section directly
+            if config_key in self.color_entries:
+                r_entry, g_entry, b_entry, preview = self.color_entries[config_key]
+                r_entry.delete(0, "end")
+                r_entry.insert(0, str(r))
+                g_entry.delete(0, "end")
+                g_entry.insert(0, str(g))
+                b_entry.delete(0, "end")
+                b_entry.insert(0, str(b))
+                self._update_color_preview(config_key)
+
+                # Save color to config
+                config_manager.set(config_key, [r, g, b])
+
+                # Also update associated coord if exists
+                color_to_coord_map = {
+                    "in_queue_pixel_color": "in_queue_pixel_pos",
+                    "accept_match_pixel_color": "accept_match_pixel_pos",
+                    "champ_select_pixel_color": "champ_select_pixel_pos",
+                }
+                if config_key in color_to_coord_map:
+                    coord_key = color_to_coord_map[config_key]
+                    if coord_key in self.coord_entries:
+                        x_entry, y_entry = self.coord_entries[coord_key]
+                        x_entry.delete(0, "end")
+                        x_entry.insert(0, str(x))
+                        y_entry.delete(0, "end")
+                        y_entry.insert(0, str(y))
+                        config_manager.set(coord_key, [x, y])
+
+            logger.info(
+                f"Picked: {config_key} -> pos=({x}, {y}), color=({r}, {g}, {b})"
+            )
+
+        except Exception as e:
+            logger.error(f"Error during pick: {e}")
+
+        finally:
+            self._end_pick_mode()
+
+    def _cancel_pick_mode(self, event=None) -> None:
+        """Cancel pick mode on Escape."""
+        self._end_pick_mode()
+
+    def _end_pick_mode(self) -> None:
+        """End pick mode and restore modal."""
+        self._pick_mode_active = False
+        self._pick_target_key = None
+
+        if self._pick_overlay:
+            self._pick_overlay.destroy()
+            self._pick_overlay = None
+
+        # Show modal again
+        self.deiconify()
+        self.attributes("-topmost", True)
+        self.focus_force()
+
+    def _save_and_close(self) -> None:
+        """Save all current entry values to config and close."""
+        try:
+            # Save all coordinates
+            for config_key, (x_entry, y_entry) in self.coord_entries.items():
+                try:
+                    x = int(x_entry.get() or 0)
+                    y = int(y_entry.get() or 0)
+                    config_manager.set(config_key, [x, y])
+                except ValueError:
+                    pass
+
+            # Save all colors
+            for config_key, (
+                r_entry,
+                g_entry,
+                b_entry,
+                _,
+            ) in self.color_entries.items():
+                try:
+                    r = int(r_entry.get() or 0)
+                    g = int(g_entry.get() or 0)
+                    b = int(b_entry.get() or 0)
+                    config_manager.set(config_key, [r, g, b])
+                except ValueError:
+                    pass
+
+            logger.info("Settings saved successfully.")
+
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            messagebox.showerror("Error", f"Failed to save settings: {e}")
+
+        self.destroy()
+
+
 class AntiFateApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -150,6 +926,7 @@ class AntiFateApp(ctk.CTk):
         self.bot: Optional[AntiFateBot] = None
         self.dimmer = GammaController()
         self._info_modal: Optional[ctk.CTkToplevel] = None
+        self._settings_modal: Optional[ctk.CTkToplevel] = None
 
         # Variables
         self.reset_time_var = tk.StringVar()
@@ -380,6 +1157,21 @@ class AntiFateApp(ctk.CTk):
             command=self.show_info_modal,
         )
         self.info_btn.place(relx=0.96, rely=0.08, anchor="ne")
+
+        # Settings Button (Top Left) - symmetrical to info button
+        self.settings_btn = ctk.CTkButton(
+            self.status_card,
+            text="⚙️",
+            width=20,
+            height=20,
+            corner_radius=10,
+            fg_color="transparent",
+            text_color=Colors.MUTED_FG,
+            hover_color=Colors.SECONDARY,
+            font=(AppConfig.FONT_FAMILY, 12),
+            command=self.show_settings_modal,
+        )
+        self.settings_btn.place(relx=0.04, rely=0.08, anchor="nw")
 
         # Hidden overlay icon
         self.status_icon = ctk.CTkLabel(
@@ -738,9 +1530,13 @@ class AntiFateApp(ctk.CTk):
 
         # Load and apply value for the NEW mode
         if new_mode == "gaming":
-            new_val = config_manager.get("dimmer_gaming_value") or 100
+            new_val = config_manager.get("dimmer_gaming_value")
+            if new_val is None:
+                new_val = 100
         else:
-            new_val = config_manager.get("dimmer_browsing_value") or 100
+            new_val = config_manager.get("dimmer_browsing_value")
+            if new_val is None:
+                new_val = 100
 
         self.dimmer_slider.set(float(new_val))
         if self.dimmer_enabled_var.get():
@@ -785,9 +1581,20 @@ class AntiFateApp(ctk.CTk):
 
     def switch_to_gaming_mode(self) -> None:
         """Callback to switch to Gaming dimmer mode (called by bot on champ select)."""
+        # Check if auto dimmer switch is enabled
+        if not config_manager.get("auto_dimmer_switch_enabled"):
+            return
+
         current_mode = config_manager.get("dimmer_mode")
         if current_mode != "gaming":
             logger.info("Champ select detected - switching to Gaming dimmer mode")
+
+            # FIX: Save current browsing value BEFORE switching to prevent race condition
+            current_slider_val = int(self.dimmer_slider.get())
+            if current_mode == "browsing":
+                config_manager.set("dimmer_browsing_value", current_slider_val)
+                logger.info(f"Saved browsing dimmer value: {current_slider_val}%")
+
             self.after(0, lambda: self.dimmer_mode_segment.set("🎮 Gaming"))
             self.after(10, lambda: self._on_dimmer_mode_changed("🎮 Gaming"))
 
@@ -833,10 +1640,14 @@ class AntiFateApp(ctk.CTk):
         dimmer_mode = config_manager.get("dimmer_mode") or "browsing"
         if dimmer_mode == "gaming":
             self.dimmer_mode_segment.set("🎮 Gaming")
-            dimmer_val = config_manager.get("dimmer_gaming_value") or 100
+            dimmer_val = config_manager.get("dimmer_gaming_value")
+            if dimmer_val is None:
+                dimmer_val = 100
         else:
             self.dimmer_mode_segment.set("🌐 Browsing")
-            dimmer_val = config_manager.get("dimmer_browsing_value") or 100
+            dimmer_val = config_manager.get("dimmer_browsing_value")
+            if dimmer_val is None:
+                dimmer_val = 100
 
         self.dimmer_slider.set(float(dimmer_val))
         self.dimmer_enabled_var.set(dimmer_enabled)
@@ -935,6 +1746,14 @@ class AntiFateApp(ctk.CTk):
             self._info_modal.attributes("-topmost", True)
             return
         self._info_modal = InfoModal(self)
+
+    def show_settings_modal(self) -> None:
+        """Trigger the advanced settings modal (Singleton pattern)."""
+        if self._settings_modal is not None and self._settings_modal.winfo_exists():
+            self._settings_modal.focus_set()
+            self._settings_modal.attributes("-topmost", True)
+            return
+        self._settings_modal = SettingsModal(self)
 
     def animate_heartbeat(self) -> None:
         """Dynamic pulsing animation for the status card."""
