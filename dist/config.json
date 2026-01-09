@@ -1,49 +1,55 @@
 {
-    "find_match_button_pos": [
-        673,
-        954
-    ],
-    "cancel_button_pos": [
-        1704,
-        214
-    ],
-    "in_queue_pixel_pos": [
-        673,
-        954
-    ],
-    "in_queue_pixel_color": [
-        91,
-        90,
-        86
-    ],
-    "accept_match_pixel_pos": [
-        1049,
-        793
-    ],
-    "accept_match_pixel_color": [
-        5,
-        134,
-        152
-    ],
-    "champ_select_pixel_pos": [
-        1545,
-        953
-    ],
-    "champ_select_pixel_color": [
-        154,
-        149,
-        135
-    ],
-    "minimize_btn_pos": [
-        1621,
-        108
-    ],
+    "current_profile": "Profile 1",
+    "profiles": {
+        "Profile 1": {
+            "find_match_button_pos": [
+                673,
+                954
+            ],
+            "cancel_button_pos": [
+                1704,
+                214
+            ],
+            "in_queue_pixel_pos": [
+                673,
+                954
+            ],
+            "in_queue_pixel_color": [
+                91,
+                90,
+                86
+            ],
+            "accept_match_pixel_pos": [
+                1049,
+                793
+            ],
+            "accept_match_pixel_color": [
+                5,
+                134,
+                152
+            ],
+            "champ_select_pixel_pos": [
+                1545,
+                953
+            ],
+            "champ_select_pixel_color": [
+                154,
+                149,
+                135
+            ],
+            "minimize_btn_pos": [
+                1621,
+                108
+            ]
+        }
+    },
     "reset_time": 90,
-    "dimmer_value": 63,
+    "dimmer_value": 60,
     "dimmer_enabled": true,
     "dimmer_mode": "browsing",
-    "dimmer_gaming_value": 100,
-    "dimmer_browsing_value": 63,
+    "dimmer_gaming_value": 94,
+    "dimmer_browsing_value": 60,
+    "auto_dimmer_switch_enabled": false,
     "reset_sound_enabled": true,
     "sound_volume": 49,
     "selected_sound": "pop",
