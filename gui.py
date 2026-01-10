@@ -218,8 +218,8 @@ class SettingsModal(ctk.CTkToplevel):
             fill="x", pady=15
         )
 
-        # === Auto Dimmer Switch Toggle ===
-        self._create_auto_dimmer_section(main_scroll)
+        # NOTE: Auto Dimmer Switch Toggle moved to main UI in v1.11
+        # self._create_auto_dimmer_section(main_scroll)
 
         # Footer
         footer = ctk.CTkFrame(self, fg_color=Colors.SECONDARY, height=50)
@@ -939,6 +939,7 @@ class AntiFateApp(ctk.CTk):
         self.sound_volume_var = tk.IntVar(value=50)
         self.dimmer_mode_var = tk.StringVar(value="browsing")  # "gaming" or "browsing"
         self.selected_sound_var = tk.StringVar(value="notify")
+        self._skip_dimmer_save = False  # Flag to prevent double-save in auto-switch
 
         self._setup_icons()
         self.create_widgets()
@@ -950,6 +951,7 @@ class AntiFateApp(ctk.CTk):
 
         # Bind events
         self.bind("<Configure>", self._on_window_configure)
+        self.bind("<FocusOut>", self._on_focus_out)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _setup_icons(self) -> None:
@@ -1362,7 +1364,33 @@ class AntiFateApp(ctk.CTk):
             height=16,
         )
         self.dimmer_slider.set(100)
-        self.dimmer_slider.pack(fill="x", padx=15, pady=(0, 15))
+        self.dimmer_slider.pack(fill="x", padx=15, pady=(0, 10))
+
+        # Auto Dimmer Switch Toggle (moved from SettingsModal in v1.11)
+        auto_dimmer_row = ctk.CTkFrame(settings_card, fg_color="transparent")
+        auto_dimmer_row.pack(fill="x", padx=15, pady=(0, 15))
+
+        ctk.CTkLabel(
+            auto_dimmer_row,
+            text="Auto switch on Champ Select",
+            font=(AppConfig.FONT_FAMILY, 11),
+            text_color=Colors.FG,
+        ).pack(side="left")
+
+        self.auto_dimmer_switch_var = ctk.BooleanVar(
+            value=config_manager.get("auto_dimmer_switch_enabled") or True
+        )
+
+        self.auto_dimmer_switch = ctk.CTkSwitch(
+            auto_dimmer_row,
+            text="",
+            width=40,
+            variable=self.auto_dimmer_switch_var,
+            command=self._toggle_auto_dimmer_switch,
+            progress_color=Colors.GREEN,
+            fg_color=Colors.SECONDARY,
+        )
+        self.auto_dimmer_switch.pack(side="right")
 
         # 3. Preferences Card
         pref_card = CardFrame(main_container)
@@ -1519,11 +1547,15 @@ class AntiFateApp(ctk.CTk):
         else:
             new_mode = "browsing"
 
-        # Save current value to the OLD mode
-        if old_mode == "gaming":
-            config_manager.set("dimmer_gaming_value", current_slider_val)
-        else:
-            config_manager.set("dimmer_browsing_value", current_slider_val)
+        # Save current value to the OLD mode (skip if called from switch_to_gaming_mode)
+        if not self._skip_dimmer_save:
+            if old_mode == "gaming":
+                config_manager.set("dimmer_gaming_value", current_slider_val)
+            else:
+                config_manager.set("dimmer_browsing_value", current_slider_val)
+
+        # Reset skip flag
+        self._skip_dimmer_save = False
 
         # Switch mode
         config_manager.set("dimmer_mode", new_mode)
@@ -1595,6 +1627,8 @@ class AntiFateApp(ctk.CTk):
                 config_manager.set("dimmer_browsing_value", current_slider_val)
                 logger.info(f"Saved browsing dimmer value: {current_slider_val}%")
 
+            # Set flag to prevent _on_dimmer_mode_changed from re-saving (would save wrong value)
+            self._skip_dimmer_save = True
             self.after(0, lambda: self.dimmer_mode_segment.set("🎮 Gaming"))
             self.after(10, lambda: self._on_dimmer_mode_changed("🎮 Gaming"))
 
@@ -1612,6 +1646,58 @@ class AntiFateApp(ctk.CTk):
             new_geo = self.geometry()
             config_manager.set("window_geometry", new_geo)
             logger.info(f"Window geometry saved: {new_geo}")
+
+    def _on_focus_out(self, event) -> None:
+        """Handle window losing focus - auto minimize."""
+        # Only process if the event is for the main window
+        if event.widget != self:
+            return
+
+        # Skip if disabled in config
+        if not config_manager.get("minimize_on_focus_loss"):
+            return
+
+        # CRITICAL: Skip if pick mode is active in settings modal
+        if self._settings_modal and hasattr(self._settings_modal, "_pick_mode_active"):
+            if self._settings_modal._pick_mode_active:
+                return
+
+        # Use after() to defer check - prevents race conditions
+        self.after(100, self._check_and_minimize)
+
+    def _check_and_minimize(self) -> None:
+        """Deferred minimize check."""
+        # Re-check pick mode after delay
+        if self._settings_modal and hasattr(self._settings_modal, "_pick_mode_active"):
+            if self._settings_modal._pick_mode_active:
+                return
+
+        # Check if any of our modals now have focus
+        try:
+            focused = self.focus_get()
+            if focused is not None:
+                # Focus returned to our hierarchy
+                return
+        except Exception:
+            pass
+
+        # Check if modals are visible
+        if self._settings_modal and self._settings_modal.winfo_exists():
+            try:
+                if self._settings_modal.winfo_viewable():
+                    return
+            except Exception:
+                pass
+
+        if self._info_modal and self._info_modal.winfo_exists():
+            try:
+                if self._info_modal.winfo_viewable():
+                    return
+            except Exception:
+                pass
+
+        # Safe to minimize
+        self.iconify()
 
     def load_settings(self) -> None:
         # Load Reset Time
@@ -1699,6 +1785,12 @@ class AntiFateApp(ctk.CTk):
         is_enabled = self.auto_reset_enabled_var.get()
         config_manager.set("auto_reset_enabled", is_enabled)
         logger.info(f"Auto Reset Queue toggled: {is_enabled}")
+
+    def _toggle_auto_dimmer_switch(self) -> None:
+        """Handle auto dimmer switch toggle (auto-switch to Gaming mode on champ select)."""
+        is_enabled = self.auto_dimmer_switch_var.get()
+        config_manager.set("auto_dimmer_switch_enabled", is_enabled)
+        logger.info(f"Auto dimmer switch toggled: {is_enabled}")
 
     def toggle_dimmer(self, save: bool = True) -> None:
         is_enabled = self.dimmer_enabled_var.get()

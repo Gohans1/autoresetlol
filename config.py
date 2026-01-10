@@ -81,6 +81,7 @@ class BotConfig:
     auto_startup_enabled: bool = DefaultConfig.AUTO_STARTUP_ENABLED
     auto_accept_enabled: bool = DefaultConfig.AUTO_ACCEPT_ENABLED
     auto_reset_enabled: bool = DefaultConfig.AUTO_RESET_ENABLED
+    minimize_on_focus_loss: bool = True
     window_geometry: str = "360x540"
 
     def __post_init__(self):

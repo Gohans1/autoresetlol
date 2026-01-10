@@ -195,8 +195,24 @@ uv pip install -r pyproject.toml
 uv run pyinstaller AntiFateEngine_v1.10.spec
 
 # Release (MANDATORY)
-gh release create v1.10 dist/AntiFateEngine_v1.10.exe --title "Release v1.10" --notes "Profile System + Auto Dimmer Switch Toggle + Settings Modal with Coord/Color Picker."
+gh release create v1.11 dist/AntiFateEngine_v1.11.exe --title "Release v1.11" --notes "Fixed browsing brightness bug + Moved auto dimmer toggle to main UI + Auto-minimize on focus loss."
 ```
+
+## CHANGELOG (v1.11) ✅
+
+### Fixed
+1. **Browsing Mode Brightness Lost** - Added `_skip_dimmer_save` flag to prevent `_on_dimmer_mode_changed()` from overwriting browsing value during auto-switch.
+2. **Auto Dimmer Switch Toggle Location** - Moved toggle from SettingsModal to main UI (under Dimmer slider).
+3. **Minimize on Focus Loss** - App now auto-minimizes when clicking other windows. Respects pick mode in Settings Modal.
+
+### Added
+- `minimize_on_focus_loss` config key (default: True)
+- `_on_focus_out()` and `_check_and_minimize()` methods in AntiFateApp
+- `_skip_dimmer_save` flag to prevent race conditions in dimmer auto-switch
+
+### Changed
+- Commented out `_create_auto_dimmer_section()` call in SettingsModal (line 222)
+- `dimmer_slider` padding changed from `(0, 15)` to `(0, 10)` to fit new toggle
 
 ## NOTES
 - **Landing the Plane:** Khi kết thúc task, LUÔN LUÔN `git push`, `bd sync` và tạo GitHub Release cho bản build mới nhất. Đéo phải hỏi.
