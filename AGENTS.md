@@ -134,8 +134,30 @@ autoresetlol/
 - **Config Key:** `auto_dimmer_switch_enabled` (default: True)
 - **Purpose:** Cho phép user TẮT tự động chuyển sang Gaming mode khi detect champ select.
 - **Use Case:** User muốn giữ màn hình tối ngay cả khi đang chơi game.
-- **Location:** Toggle trong Settings Modal, cũng được check trong `switch_to_gaming_mode()`.
+- **Location:** Toggle trong main UI (dưới Dimmer slider) - đã di chuyển ra khỏi Settings Modal từ v1.11.
 - **NEVER BREAK:** Khi sửa dimmer auto-switch, PHẢI check `config_manager.get("auto_dimmer_switch_enabled")` trước.
+
+### 10. Minimize on Focus Loss (v1.11+) ⚠️ CRITICAL
+- **Config Key:** `minimize_on_focus_loss` (default: True)
+- **Behavior:** App tự động minimize khi user click vào bất kỳ cửa sổ nào khác (LoL client, browser, etc.).
+- **Implementation:**
+  - Bind `<FocusOut>` event trên root window trong `AntiFateApp.__init__`
+  - Handler `_on_focus_out()` defer check qua `after(100)` để tránh race condition
+  - `_check_and_minimize()` verify không có modal nào đang visible trước khi minimize
+- **Exception:** KHÔNG minimize nếu đang trong Pick Mode của Settings Modal (`_pick_mode_active = True`)
+- **NEVER BREAK:** Khi sửa focus logic, PHẢI check `_settings_modal._pick_mode_active` trước khi gọi `iconify()`
+
+### 11. Browsing Brightness Persistence (v1.11+) ⚠️ CRITICAL
+- **Problem Solved:** Browsing mode brightness bị mất khi auto-switch sang Gaming mode
+- **Root Cause:** `_on_dimmer_mode_changed()` save old mode's value TRƯỚC khi switch, nhưng slider đã bị set sang gaming value rồi
+- **Solution:** Flag `_skip_dimmer_save` được set trong `switch_to_gaming_mode()` TRƯỚC khi gọi `_on_dimmer_mode_changed()`
+- **Flow:**
+  1. `switch_to_gaming_mode()` save browsing value manually
+  2. Set `_skip_dimmer_save = True`
+  3. Gọi `_on_dimmer_mode_changed()` qua `after(10)`
+  4. `_on_dimmer_mode_changed()` skip save vì flag = True
+  5. Reset flag về False sau khi xong
+- **NEVER BREAK:** Khi sửa dimmer switch logic, PHẢI giữ nguyên flag `_skip_dimmer_save` và thứ tự save/load
 
 ### 9. Settings Modal & Coord Picker (v1.10+)
 - **Settings Button:** Nút ⚙️ ở góc trái-trên Status Card (đối xứng với nút "i").
