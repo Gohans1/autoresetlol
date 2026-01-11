@@ -101,6 +101,7 @@ class DefaultConfig:
     AUTO_RESET_ENABLED: bool = True  # Auto-reset queue after threshold
     SELECTED_SOUND: str = "notify"  # Default sound file name (without extension)
     CURRENT_PROFILE: str = "Profile 1"  # Active profile name
+    UI_SCALE: float = 1.0  # UI zoom scale (0.8 - 1.5)
 
 
 # Available notification sounds (bundled in assets/sounds/)

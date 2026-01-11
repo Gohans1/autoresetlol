@@ -83,6 +83,7 @@ class BotConfig:
     auto_reset_enabled: bool = DefaultConfig.AUTO_RESET_ENABLED
     minimize_on_focus_loss: bool = True
     window_geometry: str = "360x540"
+    ui_scale: float = 1.0  # UI zoom scale (0.8 - 1.5)
 
     def __post_init__(self):
         """Ensure at least one profile exists."""

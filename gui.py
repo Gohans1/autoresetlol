@@ -879,6 +879,13 @@ class SettingsModal(ctk.CTkToplevel):
 
 class AntiFateApp(ctk.CTk):
     def __init__(self):
+        # Apply UI scaling BEFORE super().__init__() for clean initialization
+        saved_scale = config_manager.get("ui_scale") or 1.0
+        saved_scale = max(0.8, min(1.5, float(saved_scale)))  # Clamp to valid range
+        ctk.set_widget_scaling(saved_scale)
+        ctk.set_window_scaling(saved_scale)
+        self._current_scale = saved_scale
+
         super().__init__()
         # self.withdraw()  # Temporarily disabled to debug visibility
 
@@ -953,6 +960,13 @@ class AntiFateApp(ctk.CTk):
         self.bind("<Configure>", self._on_window_configure)
         self.bind("<FocusOut>", self._on_focus_out)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # Bind zoom hotkeys (browser-like: Ctrl+Plus, Ctrl+Minus, Ctrl+0)
+        self.bind("<Control-plus>", lambda e: self._zoom_in())
+        self.bind("<Control-minus>", lambda e: self._zoom_out())
+        self.bind("<Control-0>", lambda e: self._zoom_reset())
+        # Also bind Ctrl+= for keyboards where + requires Shift
+        self.bind("<Control-equal>", lambda e: self._zoom_in())
 
     def _setup_icons(self) -> None:
         """Initialize all state icons using PIL and Load Avatar."""
@@ -1698,6 +1712,33 @@ class AntiFateApp(ctk.CTk):
 
         # Safe to minimize
         self.iconify()
+
+    # === UI Scaling (Browser-like Ctrl+/- zoom) ===
+
+    def _zoom_in(self) -> None:
+        """Increase UI scale by 0.1 (max 1.5)."""
+        new_scale = min(1.5, self._current_scale + 0.1)
+        self._apply_scale(new_scale)
+
+    def _zoom_out(self) -> None:
+        """Decrease UI scale by 0.1 (min 0.8)."""
+        new_scale = max(0.8, self._current_scale - 0.1)
+        self._apply_scale(new_scale)
+
+    def _zoom_reset(self) -> None:
+        """Reset UI scale to 1.0."""
+        self._apply_scale(1.0)
+
+    def _apply_scale(self, scale: float) -> None:
+        """Apply new UI scale and persist to config."""
+        if scale == self._current_scale:
+            return
+
+        self._current_scale = round(scale, 1)
+        ctk.set_widget_scaling(self._current_scale)
+        ctk.set_window_scaling(self._current_scale)
+        config_manager.set("ui_scale", self._current_scale)
+        logger.info(f"UI scale changed to {self._current_scale}")
 
     def load_settings(self) -> None:
         # Load Reset Time
