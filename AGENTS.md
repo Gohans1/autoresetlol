@@ -213,14 +213,29 @@ uv run python main.py
 # Install Deps
 uv pip install -r pyproject.toml
 
-# Build (Example for v1.10)
-uv run pyinstaller AntiFateEngine_v1.10.spec
+# Build (Example for v1.12)
+uv run pyinstaller AntiFateEngine_v1.12.spec
 
 # Release (MANDATORY)
-gh release create v1.11 dist/AntiFateEngine_v1.11.exe --title "Release v1.11" --notes "Fixed browsing brightness bug + Moved auto dimmer toggle to main UI + Auto-minimize on focus loss."
+gh release create v1.12 dist/AntiFateEngine_v1.12.exe --title "Release v1.12" --notes "UI Scale + Scrollable main UI"
 ```
 
-## CHANGELOG (v1.11) ✅
+## CHANGELOG (v1.12) ✅
+
+### Added
+1. **UI Scale Setting** - Dropdown in Settings Modal (80%-150%) with restart prompt
+2. **Scrollable Main UI** - Main app content now scrollable with `CTkScrollableFrame`
+3. **Native Scroll Speed** - Scroll respects Windows OS settings (`WheelScrollLines` from Registry)
+4. `ui_scale` config key (default: 1.0)
+5. `_get_os_scroll_lines()` and `_setup_native_scroll_speed()` methods
+6. `_create_ui_scale_section()` in SettingsModal
+7. `_on_scale_changed()` with confirmation dialog
+
+### Changed
+- Main `main_container` changed from `CTkFrame` to `CTkScrollableFrame`
+- Build command updated to v1.12
+
+## CHANGELOG (v1.11)
 
 ### Fixed
 1. **Browsing Mode Brightness Lost** - Added `_skip_dimmer_save` flag to prevent `_on_dimmer_mode_changed()` from overwriting browsing value during auto-switch.
