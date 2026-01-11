@@ -157,6 +157,37 @@ class SettingsModal(ctk.CTkToplevel):
         self._create_widgets()
         self._load_current_values()
 
+    def _get_os_scroll_lines(self) -> int:
+        """Get the number of lines to scroll from Windows settings."""
+        try:
+            import winreg
+
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop")
+            value, _ = winreg.QueryValueEx(key, "WheelScrollLines")
+            winreg.CloseKey(key)
+            return int(value)
+        except Exception:
+            return 3  # Windows default
+
+    def _setup_native_scroll_speed(self, scrollable_frame) -> None:
+        """Override scroll speed to match OS settings."""
+        scroll_lines = self._get_os_scroll_lines()
+
+        # Get the internal canvas from CTkScrollableFrame
+        canvas = scrollable_frame._parent_canvas
+
+        def on_mousewheel(event):
+            # delta is typically 120 per notch on Windows
+            # Scroll by OS-configured number of lines (each line ~20 pixels)
+            pixels_per_line = 20
+            scroll_amount = -1 * (event.delta // 120) * scroll_lines * pixels_per_line
+            canvas.yview_scroll(scroll_amount, "units")
+            return "break"  # Prevent default handling
+
+        # Bind to the scrollable frame and all its children
+        scrollable_frame.bind("<MouseWheel>", on_mousewheel)
+        scrollable_frame.bind_all("<MouseWheel>", on_mousewheel)
+
     def _create_widgets(self) -> None:
         """Build the modal UI."""
         # Header with title and close button
@@ -193,6 +224,9 @@ class SettingsModal(ctk.CTkToplevel):
             scrollbar_button_hover_color=Colors.RING,
         )
         main_scroll.pack(fill="both", expand=True, padx=15, pady=15)
+
+        # Fix scroll speed to match OS settings
+        self._setup_native_scroll_speed(main_scroll)
 
         # === Profile Section ===
         self._create_profile_section(main_scroll)
