@@ -227,13 +227,20 @@ gh release create v1.12 dist/AntiFateEngine_v1.12.exe --title "Release v1.12" --
 2. **Scrollable Main UI** - Main app content now scrollable with `CTkScrollableFrame`
 3. **Native Scroll Speed** - Scroll respects Windows OS settings (`WheelScrollLines` from Registry)
 4. `ui_scale` config key (default: 1.0)
-5. `_get_os_scroll_lines()` and `_setup_native_scroll_speed()` methods
+5. `_get_os_scroll_lines()` and `_setup_native_scroll_speed()` methods in both SettingsModal and AntiFateApp
 6. `_create_ui_scale_section()` in SettingsModal
 7. `_on_scale_changed()` with confirmation dialog
+8. Recursive `bind_recursive()` helper to bind mousewheel to all nested children
 
 ### Changed
 - Main `main_container` changed from `CTkFrame` to `CTkScrollableFrame`
+- `self.main_container` stored as instance variable for scroll binding after widget creation
 - Build command updated to v1.12
+
+### Technical Notes
+- **Scroll Binding Order**: `_setup_native_scroll_speed()` MUST be called AFTER all widgets are created (in `__init__`, after `create_widgets()`)
+- **CTkSegmentedButton Exception**: This widget doesn't support `.bind()`, wrapped in try-except to skip
+- **Rebind After Idle**: Uses `after(100, rebind)` to catch dynamically added children
 
 ## CHANGELOG (v1.11)
 
