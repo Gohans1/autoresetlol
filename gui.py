@@ -221,6 +221,14 @@ class SettingsModal(ctk.CTkToplevel):
         # NOTE: Auto Dimmer Switch Toggle moved to main UI in v1.11
         # self._create_auto_dimmer_section(main_scroll)
 
+        # Separator
+        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
+            fill="x", pady=15
+        )
+
+        # === UI Scale Section ===
+        self._create_ui_scale_section(main_scroll)
+
         # Footer
         footer = ctk.CTkFrame(self, fg_color=Colors.SECONDARY, height=50)
         footer.pack(fill="x", side="bottom")
@@ -841,6 +849,90 @@ class SettingsModal(ctk.CTkToplevel):
         self.attributes("-topmost", True)
         self.focus_force()
 
+    def _create_ui_scale_section(self, parent) -> None:
+        """Create UI Scale selection section."""
+        section = CardFrame(parent)
+        section.pack(fill="x", pady=(0, 5))
+
+        # Section header
+        ctk.CTkLabel(
+            section,
+            text="🔍 UI Scale",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(anchor="w", padx=15, pady=(10, 5))
+
+        # Description
+        ctk.CTkLabel(
+            section,
+            text="Adjust interface size. Requires restart to apply.",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        # Scale selection row
+        scale_row = ctk.CTkFrame(section, fg_color="transparent")
+        scale_row.pack(fill="x", padx=15, pady=(0, 15))
+
+        ctk.CTkLabel(
+            scale_row,
+            text="Scale:",
+            font=(AppConfig.FONT_FAMILY, 11),
+            text_color=Colors.FG,
+        ).pack(side="left", padx=(0, 10))
+
+        # Scale options: 80% to 150% in 10% increments
+        scale_options = ["80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%"]
+
+        # Get current scale and convert to display format
+        current_scale = config_manager.get("ui_scale") or 1.0
+        current_display = f"{int(current_scale * 100)}%"
+        if current_display not in scale_options:
+            current_display = "100%"
+
+        self.scale_dropdown = ctk.CTkOptionMenu(
+            scale_row,
+            values=scale_options,
+            command=self._on_scale_changed,
+            width=100,
+            height=32,
+            fg_color=Colors.SECONDARY,
+            button_color=Colors.BORDER,
+            button_hover_color=Colors.RING,
+            dropdown_fg_color=Colors.CARD,
+            dropdown_hover_color=Colors.SECONDARY,
+            font=(AppConfig.FONT_FAMILY, 11),
+        )
+        self.scale_dropdown.set(current_display)
+        self.scale_dropdown.pack(side="left")
+
+    def _on_scale_changed(self, choice: str) -> None:
+        """Handle scale selection change."""
+        # Parse the percentage string to float
+        new_scale = int(choice.replace("%", "")) / 100.0
+        current_scale = config_manager.get("ui_scale") or 1.0
+
+        if new_scale == current_scale:
+            return
+
+        # Ask for confirmation
+        result = messagebox.askyesno(
+            "Restart Required",
+            f"Changing UI scale to {choice} requires restarting the app.\n\n"
+            "Do you want to restart now?",
+            parent=self,
+        )
+
+        if result:
+            # Save new scale and restart
+            config_manager.set("ui_scale", new_scale)
+            logger.info(f"UI scale changed to {new_scale}")
+            self.master_app._restart_app()
+        else:
+            # Revert dropdown to current value
+            current_display = f"{int(current_scale * 100)}%"
+            self.scale_dropdown.set(current_display)
+
     def _save_and_close(self) -> None:
         """Save all current entry values to config and close."""
         try:
@@ -960,18 +1052,6 @@ class AntiFateApp(ctk.CTk):
         self.bind("<Configure>", self._on_window_configure)
         self.bind("<FocusOut>", self._on_focus_out)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        # Bind zoom hotkeys (browser-like: Ctrl+Plus, Ctrl+Minus, Ctrl+0)
-        # Windows: '+' requires Shift, so Ctrl+Plus = Ctrl+Shift+=
-        self.bind("<Control-plus>", lambda e: self._zoom_in())
-        self.bind("<Control-minus>", lambda e: self._zoom_out())
-        self.bind("<Control-0>", lambda e: self._zoom_reset())
-        self.bind("<Control-equal>", lambda e: self._zoom_in())
-        # Numpad support
-        self.bind("<Control-KP_Add>", lambda e: self._zoom_in())
-        self.bind("<Control-KP_Subtract>", lambda e: self._zoom_out())
-        # Mouse wheel zoom (Ctrl + Scroll)
-        self.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
 
     def _setup_icons(self) -> None:
         """Initialize all state icons using PIL and Load Avatar."""
@@ -1718,39 +1798,41 @@ class AntiFateApp(ctk.CTk):
         # Safe to minimize
         self.iconify()
 
-    # === UI Scaling (Browser-like Ctrl+/- zoom) ===
-
-    def _zoom_in(self) -> None:
-        """Increase UI scale by 0.1 (max 1.5)."""
-        new_scale = min(1.5, self._current_scale + 0.1)
-        self._apply_scale(new_scale)
-
-    def _zoom_out(self) -> None:
-        """Decrease UI scale by 0.1 (min 0.8)."""
-        new_scale = max(0.8, self._current_scale - 0.1)
-        self._apply_scale(new_scale)
-
-    def _zoom_reset(self) -> None:
-        """Reset UI scale to 1.0."""
-        self._apply_scale(1.0)
+    # === UI Scaling ===
 
     def _apply_scale(self, scale: float) -> None:
-        """Apply new UI scale and persist to config."""
+        """Apply new UI scale - requires app restart for clean render."""
         if scale == self._current_scale:
             return
 
-        self._current_scale = round(scale, 1)
-        ctk.set_widget_scaling(self._current_scale)
-        ctk.set_window_scaling(self._current_scale)
+        self._current_scale = round(scale, 2)
         config_manager.set("ui_scale", self._current_scale)
         logger.info(f"UI scale changed to {self._current_scale}")
 
-    def _on_ctrl_mousewheel(self, event) -> None:
-        """Handle Ctrl+MouseWheel for zooming."""
-        if event.delta > 0:
-            self._zoom_in()
+    def _restart_app(self) -> None:
+        """Restart the application to apply UI scale cleanly."""
+        import sys
+        import subprocess
+
+        # Clean up before restart
+        if self.bot:
+            self.bot.stop()
+        self.dimmer.reset()
+
+        # Get the executable path
+        if getattr(sys, "frozen", False):
+            # Running as compiled exe
+            exe_path = sys.executable
         else:
-            self._zoom_out()
+            # Running as script
+            exe_path = sys.executable
+            script_path = os.path.abspath(sys.argv[0])
+            subprocess.Popen([exe_path, script_path])
+            self.destroy()
+            return
+
+        subprocess.Popen([exe_path])
+        self.destroy()
 
     def load_settings(self) -> None:
         # Load Reset Time
