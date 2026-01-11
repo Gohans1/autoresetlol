@@ -1078,6 +1078,9 @@ class AntiFateApp(ctk.CTk):
         self.create_widgets()
         self.load_settings()
 
+        # Setup scroll speed after all widgets are created
+        self._setup_native_scroll_speed(self.main_container)
+
         # Final show
         self.update_idletasks()
         # self.deiconify() # Disabled with withdraw
@@ -1254,16 +1257,16 @@ class AntiFateApp(ctk.CTk):
 
         # Main Layout (Pack SECOND with expand=True to fill remaining space)
         # Use scrollable frame for main content
-        main_container = ctk.CTkScrollableFrame(
+        self.main_container = ctk.CTkScrollableFrame(
             self,
             fg_color="transparent",
             scrollbar_button_color=Colors.BORDER,
             scrollbar_button_hover_color=Colors.RING,
         )
-        main_container.pack(fill="both", expand=True, padx=24, pady=(24, 0))
+        self.main_container.pack(fill="both", expand=True, padx=24, pady=(24, 0))
 
-        # Fix scroll speed to match OS settings
-        self._setup_native_scroll_speed(main_container)
+        # Store reference for scroll binding (will be called after all widgets created)
+        main_container = self.main_container
 
         # 1. Status Heartbeat Card
         self.status_card = CardFrame(main_container)
@@ -1870,11 +1873,23 @@ class AntiFateApp(ctk.CTk):
             canvas.yview_scroll(scroll_amount, "units")
             return "break"  # Prevent default handling
 
-        # Bind to the scrollable frame
-        scrollable_frame.bind("<MouseWheel>", on_mousewheel)
-        # Bind to children too
-        for child in scrollable_frame.winfo_children():
-            child.bind("<MouseWheel>", on_mousewheel)
+        def bind_recursive(widget):
+            """Bind mousewheel to widget and all its descendants."""
+            try:
+                widget.bind("<MouseWheel>", on_mousewheel)
+            except (NotImplementedError, tk.TclError):
+                pass  # Some widgets don't support bind
+            for child in widget.winfo_children():
+                bind_recursive(child)
+
+        # Bind now and also after widget updates
+        bind_recursive(scrollable_frame)
+
+        # Re-bind after idle to catch dynamically added children
+        def rebind():
+            bind_recursive(scrollable_frame)
+
+        scrollable_frame.after(100, rebind)
 
     # === UI Scaling ===
 
