@@ -962,11 +962,16 @@ class AntiFateApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Bind zoom hotkeys (browser-like: Ctrl+Plus, Ctrl+Minus, Ctrl+0)
+        # Windows: '+' requires Shift, so Ctrl+Plus = Ctrl+Shift+=
         self.bind("<Control-plus>", lambda e: self._zoom_in())
         self.bind("<Control-minus>", lambda e: self._zoom_out())
         self.bind("<Control-0>", lambda e: self._zoom_reset())
-        # Also bind Ctrl+= for keyboards where + requires Shift
         self.bind("<Control-equal>", lambda e: self._zoom_in())
+        # Numpad support
+        self.bind("<Control-KP_Add>", lambda e: self._zoom_in())
+        self.bind("<Control-KP_Subtract>", lambda e: self._zoom_out())
+        # Mouse wheel zoom (Ctrl + Scroll)
+        self.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
 
     def _setup_icons(self) -> None:
         """Initialize all state icons using PIL and Load Avatar."""
@@ -1739,6 +1744,13 @@ class AntiFateApp(ctk.CTk):
         ctk.set_window_scaling(self._current_scale)
         config_manager.set("ui_scale", self._current_scale)
         logger.info(f"UI scale changed to {self._current_scale}")
+
+    def _on_ctrl_mousewheel(self, event) -> None:
+        """Handle Ctrl+MouseWheel for zooming."""
+        if event.delta > 0:
+            self._zoom_in()
+        else:
+            self._zoom_out()
 
     def load_settings(self) -> None:
         # Load Reset Time
