@@ -1073,6 +1073,9 @@ class AntiFateApp(ctk.CTk):
         self.dimmer_mode_var = tk.StringVar(value="browsing")  # "gaming" or "browsing"
         self.selected_sound_var = tk.StringVar(value="notify")
         self._skip_dimmer_save = False  # Flag to prevent double-save in auto-switch
+        self._dimmer_reset_visual = (
+            False  # Flag to prevent config override after visual reset
+        )
 
         self._setup_icons()
         self.create_widgets()
@@ -1692,15 +1695,17 @@ class AntiFateApp(ctk.CTk):
         else:
             new_mode = "browsing"
 
-        # Save current value to the OLD mode (skip if called from switch_to_gaming_mode)
-        if not self._skip_dimmer_save:
+        # Save current value to the OLD mode (skip if called from switch_to_gaming_mode
+        # OR if dimmer was visually reset to 100% by reset_dimmer())
+        if not self._skip_dimmer_save and not self._dimmer_reset_visual:
             if old_mode == "gaming":
                 config_manager.set("dimmer_gaming_value", current_slider_val)
             else:
                 config_manager.set("dimmer_browsing_value", current_slider_val)
 
-        # Reset skip flag
+        # Reset flags
         self._skip_dimmer_save = False
+        self._dimmer_reset_visual = False
 
         # Switch mode
         config_manager.set("dimmer_mode", new_mode)
@@ -2052,6 +2057,10 @@ class AntiFateApp(ctk.CTk):
             self.dimmer.set_brightness(int(value))
             config_manager.set("dimmer_value", int(value))
 
+            # Clear visual reset flag when user actively drags slider
+            # This means user is now manually setting brightness
+            self._dimmer_reset_visual = False
+
             # Also save to the current mode's specific value
             current_mode = config_manager.get("dimmer_mode") or "browsing"
             if current_mode == "gaming":
@@ -2189,8 +2198,15 @@ class AntiFateApp(ctk.CTk):
         self.after(0, _update_ui)
 
     def reset_dimmer(self) -> None:
-        """Force reset dimmer to 100% (Success callback)."""
-        logger.info("Bot success confirmed. Resetting dimmer to 100%.")
+        """Force reset dimmer to 100% (Success callback).
+
+        This is a VISUAL-ONLY reset. The slider shows 100% but config values
+        are NOT overwritten. This prevents browsing/gaming values from being
+        lost when mode switches after a reset.
+        """
+        logger.info("Bot success confirmed. Resetting dimmer to 100% (visual only).")
+        # Set flag to prevent _on_dimmer_mode_changed from saving this fake 100 value
+        self._dimmer_reset_visual = True
         self.after(0, lambda: self.dimmer_slider.set(100))
         self.after(0, lambda: self.dimmer.set_brightness(100))
 

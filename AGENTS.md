@@ -159,6 +159,21 @@ autoresetlol/
   5. Reset flag về False sau khi xong
 - **NEVER BREAK:** Khi sửa dimmer switch logic, PHẢI giữ nguyên flag `_skip_dimmer_save` và thứ tự save/load
 
+### 12. Dimmer Visual Reset Protection (v1.12+) ⚠️ CRITICAL
+- **Problem Solved:** Browsing mode brightness bị reset về 100 sau khi bot success
+- **Root Cause:** `reset_dimmer()` set slider về 100 (visual reset), nhưng khi user switch mode sau đó, `_on_dimmer_mode_changed()` nghĩ slider value = 100 là user setting và save vào OLD mode config → override giá trị thật
+- **Solution:** Flag `_dimmer_reset_visual` được set trong `reset_dimmer()` để protect config
+- **Flow:**
+  1. Bot success → `reset_dimmer()` set flag = True + slider = 100 (visual only)
+  2. User switch mode → `_on_dimmer_mode_changed()` check flag
+  3. Nếu flag = True → SKIP save old mode value (vì 100 là fake value)
+  4. Load new mode value từ config (preserved)
+  5. Reset flag về False
+- **Flags:** 
+  - `_skip_dimmer_save`: Dùng cho auto-switch (switch_to_gaming_mode)
+  - `_dimmer_reset_visual`: Dùng cho visual-only reset (reset_dimmer)
+- **NEVER BREAK:** Khi sửa dimmer logic, PHẢI check CẢ 2 flags trước khi save old mode value
+
 ### 9. Settings Modal & Coord Picker (v1.10+)
 - **Settings Button:** Nút ⚙️ ở góc trái-trên Status Card (đối xứng với nút "i").
 - **SettingsModal Class:** Singleton modal (~800 lines) trong `gui.py`.
@@ -222,6 +237,9 @@ gh release create v1.12 dist/AntiFateEngine_v1.12.exe --title "Release v1.12" --
 
 ## CHANGELOG (v1.12) ✅
 
+### Fixed
+1. **Browsing Mode Brightness Reset After Bot Success** - Added `_dimmer_reset_visual` flag to protect config when `reset_dimmer()` does visual-only reset to 100%.
+
 ### Added
 1. **UI Scale Setting** - Dropdown in Settings Modal (80%-150%) with restart prompt
 2. **Scrollable Main UI** - Main app content now scrollable with `CTkScrollableFrame`
@@ -231,6 +249,7 @@ gh release create v1.12 dist/AntiFateEngine_v1.12.exe --title "Release v1.12" --
 6. `_create_ui_scale_section()` in SettingsModal
 7. `_on_scale_changed()` with confirmation dialog
 8. Recursive `bind_recursive()` helper to bind mousewheel to all nested children
+9. `_dimmer_reset_visual` flag to prevent config override after visual reset
 
 ### Changed
 - Main `main_container` changed from `CTkFrame` to `CTkScrollableFrame`
