@@ -261,7 +261,14 @@ gh release create v1.12 dist/AntiFateEngine_v1.12.exe --title "Release v1.12" --
 - **CTkSegmentedButton Exception**: This widget doesn't support `.bind()`, wrapped in try-except to skip
 - **Rebind After Idle**: Uses `after(100, rebind)` to catch dynamically added children
 
-## CHANGELOG (v1.11)
+## CHANGELOG (v1.13) ✅
+
+### Fixed
+1. **Auto Dimmer Switch Toggle Not Saving** - Bug: `False or True` always returns True. Fixed by checking `if config_val is None` instead of using `or True`.
+
+### Changed
+- Label "Auto switch on Champ Select" → "Auto switch to Gaming mode" (clearer)
+- Version bump to v1.13
 
 ### Fixed
 1. **Browsing Mode Brightness Lost** - Added `_skip_dimmer_save` flag to prevent `_on_dimmer_mode_changed()` from overwriting browsing value during auto-switch.

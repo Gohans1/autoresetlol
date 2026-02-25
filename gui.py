@@ -611,14 +611,16 @@ class SettingsModal(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             row,
-            text="🎮 Auto switch to Gaming mode on Champ Select",
+            text="🎮 Auto switch to Gaming mode",
             font=(AppConfig.FONT_FAMILY, 11),
             text_color=Colors.FG,
         ).pack(side="left")
 
-        self.auto_dimmer_switch_var = ctk.BooleanVar(
-            value=config_manager.get("auto_dimmer_switch_enabled") or True
-        )
+        # Lấy giá trị config, mặc định True nếu không có
+        config_val = config_manager.get("auto_dimmer_switch_enabled")
+        if config_val is None:
+            config_val = True
+        self.auto_dimmer_switch_var = ctk.BooleanVar(value=config_val)
 
         self.auto_dimmer_switch = ctk.CTkSwitch(
             row,
@@ -1520,14 +1522,16 @@ class AntiFateApp(ctk.CTk):
 
         ctk.CTkLabel(
             auto_dimmer_row,
-            text="Auto switch on Champ Select",
+            text="Auto switch to Gaming mode",
             font=(AppConfig.FONT_FAMILY, 11),
             text_color=Colors.FG,
         ).pack(side="left")
 
-        self.auto_dimmer_switch_var = ctk.BooleanVar(
-            value=config_manager.get("auto_dimmer_switch_enabled") or True
-        )
+        # Lấy giá trị config, mặc định True nếu không có
+        config_val = config_manager.get("auto_dimmer_switch_enabled")
+        if config_val is None:
+            config_val = True
+        self.auto_dimmer_switch_var = ctk.BooleanVar(value=config_val)
 
         self.auto_dimmer_switch = ctk.CTkSwitch(
             auto_dimmer_row,
