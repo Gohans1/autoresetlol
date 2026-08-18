@@ -8,6 +8,12 @@ OPTIONAL_PICK_FIELDS = ("b1", "b2", "b3")
 NO_PICK_LABEL = "Không"
 NOT_SET_LABEL = "Chưa chọn"
 
+# LCU inventory exposes some Arena/Jade aliases in the 60000 namespace,
+# while Champ Select actions use the base champion ID. Example: 60053 and 53
+# both identify Blitzcrank. Keep one canonical ID inside the application.
+_CHAMPION_ALIAS_OFFSET = 60000
+_CHAMPION_ALIAS_LIMIT = 70000
+
 
 @dataclass(frozen=True)
 class ArenaConfigIssue:
@@ -19,12 +25,19 @@ class ArenaConfigIssue:
 
 
 def champion_id(value: object) -> int:
-    """Return a safe positive champion id, or zero when the value is invalid."""
+    """Return the canonical positive Champ Select champion ID."""
     if isinstance(value, bool):
         return 0
-    if isinstance(value, int) and value > 0:
-        return value
-    return 0
+    if isinstance(value, str):
+        value = value.strip()
+        if not value.isdecimal():
+            return 0
+        value = int(value)
+    if not isinstance(value, int) or value <= 0:
+        return 0
+    if _CHAMPION_ALIAS_OFFSET <= value < _CHAMPION_ALIAS_LIMIT:
+        value -= _CHAMPION_ALIAS_OFFSET
+    return value if value > 0 else 0
 
 
 def normalize_pick_chain(chain: object) -> Tuple[int, int, int, int]:

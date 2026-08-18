@@ -8,8 +8,9 @@ Làm 2 việc, đều đọc trạng thái thật từ LCU API:
    (thay cho kiểu cũ chỉ nhìn pixel champ select, không bao giờ quay về)
 
 2. **Arena ban/pick tự động** (chỉ khi gameMode = ARENA + toggle bật):
-   - Set ĐÚNG 1 LẦN khi màn chọn tướng mở, chỉ HOVER (PATCH championId),
-     KHÔNG bao giờ complete/lock — hết giờ client tự khóa, user đổi được.
+   - PATCH đúng action Ban/Pick đang active, đọc lại đúng action đó và chỉ
+     xác nhận khi client giữ đúng tướng; nếu state cập nhật chậm thì retry
+     theo phase. Chỉ HOVER, KHÔNG bao giờ complete/lock — user đổi được.
    - User đã tự chọn (action có championId hoặc đã complete) → tôn trọng.
    - Chuỗi chọn: main → dự bị 1..3, con đầu tiên sở hữu + chưa bị ban.
      Chờ bans được lộ ra mới chọn (Arena ban ẩn, lộ khi mọi người khóa).
@@ -24,7 +25,7 @@ import time
 import winsound
 from typing import Dict, Optional
 
-from arena_config import validate_arena_config
+from arena_config import champion_id, validate_arena_config
 from config import config_manager
 from logger import logger
 from utils.lcu import lcu
@@ -76,6 +77,7 @@ class LcuWatcher(threading.Thread):
         self._ban_handled: bool = False
         self._pick_handled: bool = False
         self._ban_fail_count: int = 0
+        self._ban_pending_action: Optional[tuple[int, int]] = None
         self._pick_fail_count: int = 0
         self._alerted: bool = False
         # Theo dõi tướng bot đã hover (phát hiện team lấy mất / user tự đổi)
@@ -217,12 +219,14 @@ class LcuWatcher(threading.Thread):
             or self._ban_handled
             or self._pick_handled
             or self._alerted
+            or self._ban_pending_action is not None
         ):
             self._in_champ_select = False
             self._champ_select_since = 0.0
             self._ban_handled = False
             self._pick_handled = False
             self._ban_fail_count = 0
+            self._ban_pending_action = None
             self._pick_fail_count = 0
             self._alerted = False
             self._pick_picked_id = 0
@@ -267,6 +271,32 @@ class LcuWatcher(threading.Thread):
         return out
 
     @staticmethod
+    def _action_champion_id(action: object) -> int:
+        """Return one action's canonical champion ID."""
+        if not isinstance(action, dict):
+            return 0
+        return champion_id(action.get("championId", 0))
+
+    @staticmethod
+    def _find_my_action(
+        session: dict, action_type: str, action_id: int
+    ) -> Optional[dict]:
+        """Find one local action, including completed actions."""
+        try:
+            local = session["localPlayerCellId"]
+        except (KeyError, TypeError):
+            return None
+        for group in session.get("actions") or []:
+            for action in group:
+                if (
+                    action.get("type") == action_type
+                    and action.get("actorCellId") == local
+                    and action.get("id") == action_id
+                ):
+                    return action
+        return None
+
+    @staticmethod
     def _has_my_completed_action(session: dict, action_type: str) -> bool:
         """Return True when the user already completed an action."""
         try:
@@ -279,8 +309,7 @@ class LcuWatcher(threading.Thread):
                     action.get("type") == action_type
                     and action.get("actorCellId") == local
                     and action.get("completed")
-                    and isinstance(action.get("championId"), int)
-                    and action.get("championId", 0) > 0
+                    and LcuWatcher._action_champion_id(action) > 0
                 ):
                     return True
         return False
@@ -339,9 +368,9 @@ class LcuWatcher(threading.Thread):
             return False, set()
 
         revealed = {
-            value
+            champion_id(value)
             for value in [*my_bans, *their_bans]
-            if isinstance(value, int) and not isinstance(value, bool) and value > 0
+            if champion_id(value) > 0
         }
         if revealed:
             return True, revealed
@@ -350,12 +379,11 @@ class LcuWatcher(threading.Thread):
         # actions before opening the real Pick group. Use that only when a
         # post-ban local Pick action is explicitly active.
         ban_action_ids = {
-            action.get("championId")
+            LcuWatcher._action_champion_id(action)
             for group in (session.get("actions") or [])
             for action in group
             if action.get("type") == "ban"
-            and isinstance(action.get("championId"), int)
-            and action.get("championId") > 0
+            and LcuWatcher._action_champion_id(action) > 0
         }
         if ban_action_ids and LcuWatcher._real_pick_open(session):
             return True, ban_action_ids
@@ -381,8 +409,8 @@ class LcuWatcher(threading.Thread):
                     continue
                 if action.get("actorCellId") == local:
                     continue  # action của mình/bot — không tính
-                cid = action.get("championId")
-                if isinstance(cid, int) and not isinstance(cid, bool) and cid > 0:
+                cid = LcuWatcher._action_champion_id(action)
+                if cid > 0:
                     picked.add(cid)
         return picked
 
@@ -390,9 +418,9 @@ class LcuWatcher(threading.Thread):
     def _chain_ids() -> list:
         """Chuỗi main → dự bị từ config (tối đa 4 — khớp GUI), bỏ số 0."""
         chain = [
-            c
+            champion_id(c)
             for c in (config_manager.get("arena_pick_chain") or [])
-            if isinstance(c, int) and c > 0
+            if champion_id(c) > 0
         ]
         return chain[:4]
 
@@ -403,12 +431,15 @@ class LcuWatcher(threading.Thread):
             return self._owned_cache
         try:
             champions = lcu.owned_champions()
-            ids = {c["id"] for c in champions if c.get("id", 0) > 0}
-            names = {
-                c["id"]: str(c["name"]).strip()
-                for c in champions
-                if c.get("id", 0) > 0 and str(c.get("name") or "").strip()
-            }
+            ids = set()
+            names = {}
+            for champion in champions:
+                cid = champion_id(champion.get("id"))
+                name = str(champion.get("name") or "").strip()
+                if cid > 0:
+                    ids.add(cid)
+                    if name:
+                        names[cid] = name
         except Exception:
             ids = set()
             names = {}
@@ -419,6 +450,7 @@ class LcuWatcher(threading.Thread):
 
     def _champ_name(self, cid: int) -> str:
         """Tên tướng theo client; fallback \"Tướng #id\" khi chưa biết tên."""
+        cid = champion_id(cid)
         name = self._owned_names.get(cid)
         if name:
             return name
@@ -452,15 +484,24 @@ class LcuWatcher(threading.Thread):
         return True, None
 
     def _set_action_champion_verified(
-        self, action_type: str, action_id: int, champion_id: int
+        self, action_type: str, action_id: int, champion_id_value: int
     ) -> bool:
-        """PATCH one action and verify the LCU state changed to that champion."""
-        if not lcu.set_action_champion(action_id, champion_id):
+        """PATCH one action and verify the active action holds that champion."""
+        target = champion_id(champion_id_value)
+        if target <= 0:
+            return False
+        if not lcu.set_action_champion(action_id, target):
             self._arena_event(
                 f"{action_type.capitalize()}: LCU từ chối PATCH — đang thử lại",
                 "orange",
             )
             return False
+
+        # Keep provenance when the client updates the action after this method
+        # returns. A later completed action can be confirmed only when it is
+        # the same action and still has the same canonical target.
+        if action_type == "ban":
+            self._ban_pending_action = (action_id, target)
 
         deadline = time.monotonic() + _ACTION_VERIFY_TIMEOUT
         last_reason = "chưa đọc được action"
@@ -471,10 +512,19 @@ class LcuWatcher(threading.Thread):
             elif live is None:
                 last_reason = "action đã biến mất"
             else:
-                observed = live.get("championId", 0)
-                last_reason = f"client vẫn báo championId={observed}"
-                if observed == champion_id:
+                raw_observed = live.get("championId", 0)
+                observed = self._action_champion_id(live)
+                last_reason = (
+                    f"client báo championId={raw_observed} "
+                    f"(ID chuẩn={observed})"
+                )
+                active = self._action_is_in_progress(live) and (
+                    live.get("completed") is not True
+                )
+                if observed == target and active:
                     return True
+                if observed == target:
+                    last_reason += "; action chưa còn active"
             time.sleep(_ACTION_VERIFY_INTERVAL)
 
         logger.warning(
@@ -544,33 +594,65 @@ class LcuWatcher(threading.Thread):
 
     # ---- ban ----
 
+    def _confirm_pending_ban(self, session: dict) -> bool:
+        """Confirm only the exact Ban action that this watcher patched."""
+        pending = self._ban_pending_action
+        if pending is None:
+            return False
+        action_id, target = pending
+        action = self._find_my_action(session, "ban", action_id)
+        if action is None:
+            return False
+
+        observed = self._action_champion_id(action)
+        if observed == target and (
+            action.get("completed") is True or self._action_is_in_progress(action)
+        ):
+            self._arena_event(
+                f"Đã cấm: {self._champ_name(target)} — xác minh sau retry",
+                "green",
+            )
+            self._ban_pending_action = None
+            self._ban_fail_count = 0
+            self._ban_handled = True
+            return True
+
+        if observed > 0 and observed != target:
+            self._arena_event(
+                f"Bạn đã tự cấm: {self._champ_name(observed)} — không ghi đè",
+                "gray",
+            )
+            self._ban_pending_action = None
+            self._ban_fail_count = 0
+            self._ban_handled = True
+            return True
+        return False
+
     def _handle_ban(self, session: dict) -> None:
         if not config_manager.get("auto_ban_enabled"):
             return
         if self._ban_handled:
             return
-        target = config_manager.get("arena_ban_champ")
-        if not isinstance(target, int) or target <= 0:
+        target = champion_id(config_manager.get("arena_ban_champ"))
+        if target <= 0:
             self._arena_event("Ban: bị chặn — chưa chọn tướng cấm", "red")
             self._ban_handled = True  # chưa cấu hình → không làm gì
             return
 
+        if self._confirm_pending_ban(session):
+            return
+
         all_bans = self._all_my_actions(session, "ban")
         for action in all_bans:
-            existing_id = action.get("championId", 0)
+            existing_id = self._action_champion_id(action)
             if existing_id > 0:
-                if existing_id == target and self._ban_fail_count > 0:
-                    self._arena_event(
-                        f"Đã cấm: {self._champ_name(target)} — xác minh sau retry",
-                        "green",
-                    )
-                    self._ban_fail_count = 0
-                else:
-                    # User đã tự chọn tướng khác — tôn trọng, không ghi đè.
-                    self._arena_event(
-                        f"Ban: action đã có tướng {self._champ_name(existing_id)} — không ghi đè",
-                        "gray",
-                    )
+                # Không có pending action của bot → đây là lựa chọn của user.
+                self._arena_event(
+                    f"Bạn đã tự cấm: {self._champ_name(existing_id)} — không ghi đè",
+                    "gray",
+                )
+                self._ban_pending_action = None
+                self._ban_fail_count = 0
                 self._ban_handled = True
                 return
 
@@ -596,12 +678,14 @@ class LcuWatcher(threading.Thread):
             return  # ban phase chưa mở — chờ, không đánh dấu handled
 
         for a in actions:
-            if a.get("championId", 0) > 0:
+            if self._action_champion_id(a) > 0:
                 # User đã tự chọn ban → tôn trọng, không ghi đè
                 self._arena_event(
-                    f"Bạn đã tự cấm: {self._champ_name(a.get('championId', 0))} — không ghi đè",
+                    f"Bạn đã tự cấm: {self._champ_name(self._action_champion_id(a))} — không ghi đè",
                     "gray",
                 )
+                self._ban_pending_action = None
+                self._ban_fail_count = 0
                 self._ban_handled = True
                 return
 
@@ -609,7 +693,7 @@ class LcuWatcher(threading.Thread):
             if not known:
                 self._arena_event("Ban: chưa đọc được action live — không PATCH", "orange")
                 return
-            if live is None or live.get("championId", 0) > 0:
+            if live is None or self._action_champion_id(live) > 0:
                 # Action đã biến mất hoặc user vừa tự chọn → tôn trọng.
                 self._arena_event(
                     "Ban: action đã đổi hoặc user vừa chọn — không ghi đè",
@@ -645,6 +729,7 @@ class LcuWatcher(threading.Thread):
                 )
                 self._ban_handled = True
                 self._ban_fail_count = 0
+                self._ban_pending_action = None
                 return
             # PATCH fail — giữ action chưa handled; retry đến khi action
             # đóng hoặc chuyển sang Pick thật.
@@ -688,13 +773,11 @@ class LcuWatcher(threading.Thread):
             self._arena_event("Pick: action chưa mở — đang chờ phase pick", "orange")
             return  # pick phase chưa mở (đang ban phase) — CHỜ, không handled
         action = actions[0]
-        if (
-            action.get("championId", 0) > 0
-            and action.get("championId", 0) not in self._pick_attempted_ids
-        ):
+        action_champion = self._action_champion_id(action)
+        if action_champion > 0 and action_champion not in self._pick_attempted_ids:
             # User đã tự hover tướng → tôn trọng, không ghi đè
             self._arena_event(
-                f"Bạn đã tự chọn: {self._champ_name(action.get('championId', 0))} — không ghi đè",
+                f"Bạn đã tự chọn: {self._champ_name(action_champion)} — không ghi đè",
                 "gray",
             )
             self._pick_handled = True
@@ -765,7 +848,7 @@ class LcuWatcher(threading.Thread):
         if not known:
             self._arena_event("Pick: chưa đọc được action live — không PATCH", "orange")
             return
-        live_hover = live.get("championId", 0) if live else 0
+        live_hover = self._action_champion_id(live) if live else 0
         if live is None or (
             live_hover > 0 and live_hover not in self._pick_attempted_ids
         ):
@@ -815,8 +898,9 @@ class LcuWatcher(threading.Thread):
     def _pick_holders(session: dict, cid: int) -> list:
         """Actor khác đang giữ tướng ``cid`` trên bảng (mình loại trừ)."""
         holders: list = []
-        if not isinstance(session, dict) or cid <= 0:
+        if not isinstance(session, dict) or champion_id(cid) <= 0:
             return holders
+        cid = champion_id(cid)
         try:
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
@@ -827,7 +911,7 @@ class LcuWatcher(threading.Thread):
                     continue
                 if action.get("actorCellId") == local:
                     continue
-                if action.get("championId") == cid:
+                if LcuWatcher._action_champion_id(action) == cid:
                     holders.append(action.get("actorCellId"))
         return holders
 
@@ -857,7 +941,7 @@ class LcuWatcher(threading.Thread):
             if self._pick_holders(session, self._pick_picked_id):
                 self._pick_lost(session)
             return
-        current = mine[0].get("championId", 0)
+        current = self._action_champion_id(mine[0])
         if current == self._pick_picked_id:
             self._pick_wait_logged = False
             return  # vẫn đang giữ đúng tướng — ổn

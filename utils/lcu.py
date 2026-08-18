@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 import psutil
 
 from logger import logger
+from arena_config import champion_id as canonical_champion_id
 
 # Cert tự ký của LCU — cố ý bỏ qua xác thực (chỉ localhost, không có
 # thông tin nhạy cảm đi qua mạng).
@@ -244,14 +245,21 @@ class LCUClient:
         """Hover champion vào action ban/pick.
 
         KHÔNG gọi .../complete — bot không bao giờ khóa, user còn đổi được.
-        Dùng raise_on_error: PATCH thành công có thể trả 204/body rỗng —
-        coi mọi response hợp lệ (kể cả không có body) là THÀNH CÔNG.
+        Dùng ID Champ Select chuẩn; LCU inventory có thể trả alias Arena 60000+.
+        Dùng raise_on_error: PATCH hợp lệ có thể trả 204/body rỗng.
         """
+        target = canonical_champion_id(champion_id)
+        if target <= 0:
+            logger.warning(
+                f"LCU PATCH /lol-champ-select/v1/session/actions/{action_id} "
+                "rejected: invalid champion ID"
+            )
+            return False
         try:
             self.request(
                 "PATCH",
                 f"/lol-champ-select/v1/session/actions/{action_id}",
-                {"championId": champion_id},
+                {"championId": target},
                 raise_on_error=True,
             )
             return True

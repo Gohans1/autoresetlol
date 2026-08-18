@@ -318,11 +318,14 @@ class AntiFateApp(ctk.CTk):
             recent = {}
         self._arena_recent: Dict[str, List[int]] = {}
         for k in ("ban", "main", "b1", "b2", "b3"):
-            self._arena_recent[k] = [
-                c
-                for c in (recent.get(k) or [])
-                if isinstance(c, int) and not isinstance(c, bool) and c > 0
-            ][:5]
+            normalized_recent: List[int] = []
+            for raw_id in recent.get(k) or []:
+                cid = champion_id(raw_id)
+                if cid > 0 and cid not in normalized_recent:
+                    normalized_recent.append(cid)
+                if len(normalized_recent) >= 5:
+                    break
+            self._arena_recent[k] = normalized_recent
         # Fetch generation — spam nút ⟳ có nhiều thread fetch chồng nhau;
         # chỉ kết quả của generation MỚI NHẤT được áp dụng.
         self._arena_fetch_gen: int = 0
@@ -332,11 +335,11 @@ class AntiFateApp(ctk.CTk):
         while len(chain) < 4:
             chain.append(0)
         self._arena_loaded_ids = {
-            "ban": config_manager.get("arena_ban_champ") or 0,
-            "main": chain[0],
-            "b1": chain[1],
-            "b2": chain[2],
-            "b3": chain[3],
+            "ban": champion_id(config_manager.get("arena_ban_champ") or 0),
+            "main": champion_id(chain[0]),
+            "b1": champion_id(chain[1]),
+            "b2": champion_id(chain[2]),
+            "b3": champion_id(chain[3]),
         }
 
         def make_combo_row(parent, key, label) -> None:
@@ -595,7 +598,7 @@ class AntiFateApp(ctk.CTk):
         names: Dict[int, str] = {}
         for raw_id, raw_name in value.items():
             try:
-                cid = int(raw_id)
+                cid = champion_id(raw_id)
             except (TypeError, ValueError):
                 continue
             if cid <= 0 or not isinstance(raw_name, str):

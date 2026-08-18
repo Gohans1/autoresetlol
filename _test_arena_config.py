@@ -2,7 +2,13 @@
 import sys
 from typing import Any
 
-from arena_config import NO_PICK_LABEL, NOT_SET_LABEL, validate_arena_config
+from arena_config import (
+    NO_PICK_LABEL,
+    NOT_SET_LABEL,
+    champion_id,
+    validate_arena_config,
+)
+from config import BotConfig
 import gui
 from gui import AntiFateApp
 
@@ -24,6 +30,29 @@ issues = validate_arena_config(
     pick_chain=[0, 0, 0, 0],
 )
 check("T1: tính năng tắt → không lỗi", not issues, str(issues))
+check(
+    "T1b: Arena alias ID 60053 dùng cùng ID action 53",
+    champion_id(60053) == 53 and champion_id("60053") == 53,
+)
+legacy_config = BotConfig.from_dict(
+    {
+        "arena_ban_champ": "60053",
+        "arena_pick_chain": [60053, "60084", 0, 0],
+        "arena_recent": {"ban": [60053, 53]},
+        "arena_champion_names": {
+            "60053": "Blitzcrank",
+            "53": "Blitzcrank",
+        },
+    }
+)
+check(
+    "T1c: config cũ được migrate mà không mất tướng",
+    legacy_config.arena_ban_champ == 53
+    and legacy_config.arena_pick_chain[:2] == [53, 84]
+    and legacy_config.arena_recent == {"ban": [53]}
+    and legacy_config.arena_champion_names == {"53": "Blitzcrank"},
+    str(legacy_config),
+)
 
 issues = validate_arena_config(
     auto_ban_enabled=True,

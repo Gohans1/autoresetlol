@@ -16,9 +16,11 @@ Read this file before changing `gui.py`, `bot.py`, `lcu_watcher.py`, or `utils/l
 
 4. **Arena action state is explicit.** Pick Intent is not final Pick. Use action group order and explicit `isInProgress is True`. Missing `isInProgress` is unknown and must wait. Never use a default `True`.
 
-5. **No attempt-count or fixed-delay phase detection.** Do not wait for a magic fourth poll or a hard-coded sleep to infer Ban/Pick. Ban uses the local active ban action. Pick uses the local pick action after the Ban group. Ban IDs from the action group may be used when the client leaves the summary empty, but only after the real Pick group is active.
+5. **Arena champion IDs are canonical.** LCU inventory may expose `60000 + baseId` Arena/Jade aliases, while Champ Select actions use `baseId` (`60053` and `53` are Blitzcrank). Always pass IDs through `arena_config.champion_id()` before config, roster, ban-list, action, or read-back comparisons. Never compare raw IDs.
 
-6. **Worker lifecycle is authoritative.** Do not clear the current bot or enable START until the worker has exited. Stale worker callbacks must be rejected by generation/state guards.
+6. **No attempt-count or fixed-delay phase detection.** Do not wait for a magic fourth poll or a hard-coded sleep to infer Ban/Pick. Ban uses the local active ban action. Pick uses the local pick action after the Ban group. Ban IDs from the action group may be used when the client leaves the summary empty, but only after the real Pick group is active.
+
+7. **Worker lifecycle is authoritative.** Do not clear the current bot or enable START until the worker has exited. Stale worker callbacks must be rejected by generation/state guards.
 
 ## Required verification
 

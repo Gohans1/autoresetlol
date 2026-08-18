@@ -5,8 +5,54 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict, field
 import threading
 from constants import DefaultConfig, AppConfig
+from arena_config import champion_id, normalize_pick_chain
 
 logger = logging.getLogger("AutoResetLoL")
+
+
+def _normalize_arena_recent(value: object) -> Dict[str, List[int]]:
+    """Normalize recent champion IDs and remove duplicate aliases."""
+    if not isinstance(value, dict):
+        return {}
+    recent: Dict[str, List[int]] = {}
+    for key, values in value.items():
+        if not isinstance(values, (list, tuple)):
+            continue
+        normalized: List[int] = []
+        for raw_id in values:
+            cid = champion_id(raw_id)
+            if cid > 0 and cid not in normalized:
+                normalized.append(cid)
+            if len(normalized) >= 5:
+                break
+        recent[str(key)] = normalized
+    return recent
+
+
+def _normalize_arena_names(value: object) -> Dict[str, str]:
+    """Merge cached names that use base and Arena alias IDs."""
+    if not isinstance(value, dict):
+        return {}
+    names: Dict[str, str] = {}
+    for raw_id, raw_name in value.items():
+        cid = champion_id(raw_id)
+        name = raw_name.strip() if isinstance(raw_name, str) else ""
+        if cid > 0 and name:
+            names[str(cid)] = name
+    return names
+
+
+def _normalize_arena_value(key: str, value: Any) -> Any:
+    """Keep every Arena ID at the config boundary in canonical form."""
+    if key == "arena_ban_champ":
+        return champion_id(value)
+    if key == "arena_pick_chain":
+        return list(normalize_pick_chain(value))
+    if key == "arena_recent":
+        return _normalize_arena_recent(value)
+    if key == "arena_champion_names":
+        return _normalize_arena_names(value)
+    return value
 
 
 @dataclass
@@ -47,10 +93,18 @@ class BotConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BotConfig":
-        """Load config, lọc key lạ (config.json cũ có key đã bỏ — bỏ qua)."""
+        """Load config and normalize Arena IDs from older client data."""
         valid_keys = cls.__dataclass_fields__.keys()
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
-        return cls(**filtered_data)
+        config = cls(**filtered_data)
+        for key in (
+            "arena_ban_champ",
+            "arena_pick_chain",
+            "arena_recent",
+            "arena_champion_names",
+        ):
+            setattr(config, key, _normalize_arena_value(key, getattr(config, key)))
+        return config
 
 
 class ConfigManager:
@@ -107,7 +161,7 @@ class ConfigManager:
         dimmer slider drag handler, which fires dozens of times per second).
         """
         if hasattr(self.config, key):
-            setattr(self.config, key, value)
+            setattr(self.config, key, _normalize_arena_value(key, value))
             if save:
                 self.save_config()
         else:

@@ -25,6 +25,7 @@ class FakeLCU:
             {"id": 3, "name": "Zed"},
             {"id": 4, "name": "Garen"},
             {"id": 99, "name": "TestBan"},
+            {"id": 60053, "name": "Blitzcrank"},
         ]
         self.patches = []  # (action_id, champion_id)
         self.patch_ok = True
@@ -32,6 +33,7 @@ class FakeLCU:
         self.owned_raises = False
         self.session_reads = 0
         self.mutate_pick_on_second_read = False
+        self.patch_state_champion_id = None
 
     def gameflow_phase(self):
         return self.phase
@@ -57,7 +59,11 @@ class FakeLCU:
             for group in self.session.get("actions") or []:
                 for current_action in group:
                     if current_action.get("id") == action_id:
-                        current_action["championId"] = champion_id
+                        current_action["championId"] = (
+                            self.patch_state_champion_id
+                            if self.patch_state_champion_id is not None
+                            else champion_id
+                        )
         return True
 
     def owned_champions(self):
@@ -135,6 +141,7 @@ def make_watcher():
     fake_lcu.apply_patch_to_session = True
     fake_lcu.session_reads = 0
     fake_lcu.mutate_pick_on_second_read = False
+    fake_lcu.patch_state_champion_id = None
     w = lcu_watcher.LcuWatcher(
         update_status_callback=lambda t, c: STATUS_LOG.append((t, c)),
         arena_event_callback=lambda t, c: ARENA_EVENTS.append((t, c)),
@@ -193,6 +200,29 @@ check(
     "T3c: ban log có tên tướng",
     any(
         text == "Đã cấm: TestBan" and color == "green"
+        for text, color in ARENA_EVENTS
+    ),
+    str(ARENA_EVENTS),
+)
+
+# ============ T3d: Arena ID 60053 phải xác minh với action ID 53 ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]])
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 60053
+fake_lcu.patch_state_champion_id = 53
+w._tick()
+check(
+    "T3d: alias Blitzcrank → PATCH ID chuẩn 53",
+    fake_lcu.patches == [(10, 53)],
+    str(fake_lcu.patches),
+)
+check(
+    "T3e: alias Blitzcrank → Ban được xác minh",
+    any(
+        text == "Đã cấm: Blitzcrank" and color == "green"
         for text, color in ARENA_EVENTS
     ),
     str(ARENA_EVENTS),
@@ -428,7 +458,30 @@ check("T14e: quá 5 lần fail nhưng chưa kết thúc phase", w._ban_handled i
 fake_lcu.session["actions"][0][0]["championId"] = 99
 w._tick()
 check(
-    "T14f: action đã có champion → xác nhận Ban sau retry",
+    "T14f: PATCH bị từ chối rồi user chọn → tôn trọng lựa chọn",
+    w._ban_handled is True
+    and ARENA_EVENTS[-1][0].startswith("Bạn đã tự cấm:")
+    and ARENA_EVENTS[-1][1] == "gray",
+    str(ARENA_EVENTS[-1]),
+)
+
+# ============ T14g: action bot đặt rồi mới completed → không gắn nhãn user ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [action(20, "pick", in_progress=False)]]
+)
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 99
+fake_lcu.apply_patch_to_session = False
+w._tick()
+fake_lcu.session["actions"][0][0]["championId"] = 99
+fake_lcu.session["actions"][0][0]["completed"] = True
+fake_lcu.session["actions"][0][0]["isInProgress"] = False
+w._tick()
+check(
+    "T14g: completed action cùng target → xác minh sau retry",
     w._ban_handled is True
     and ARENA_EVENTS[-1][0].startswith("Đã cấm:")
     and "xác minh sau retry" in ARENA_EVENTS[-1][0]

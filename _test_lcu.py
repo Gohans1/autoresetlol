@@ -49,6 +49,25 @@ class FakeClient(LCUClient):
 check("T5: LCUClient.game_mode() normalizes CHERRY", FakeClient().game_mode() == "ARENA")
 
 
+class ActionClient(LCUClient):
+    def __init__(self):
+        super().__init__()
+        self.last_request = None
+
+    def request(self, method, path, body=None, raise_on_error=False):
+        self.last_request = (method, path, body, raise_on_error)
+        return None
+
+
+action_client = ActionClient()
+check(
+    "T5b: PATCH chuẩn hóa Arena alias 60053 → 53",
+    action_client.set_action_champion(7, 60053)
+    and action_client.last_request[2] == {"championId": 53},
+    str(action_client.last_request),
+)
+
+
 class SearchClient(LCUClient):
     def request(self, method, path, body=None, raise_on_error=False):
         return {"isActive": path == "/lol-matchmaking/v1/search"}
