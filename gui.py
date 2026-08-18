@@ -1387,8 +1387,6 @@ class AntiFateApp(ctk.CTk):
             scrollbar_button_hover_color=Colors.RING,
         )
         self.main_container.pack(fill="both", expand=True, padx=24, pady=(24, 0))
-        self.main_container.grid_columnconfigure(0, weight=65)
-        self.main_container.grid_columnconfigure(1, weight=35)
 
         # --- Main Layout: 2-column grid + full-width bottom row ---
         # grid_row 0: left_column (Arena, 65%) | right_column (Status/Dimmer/LCU, 35%)
