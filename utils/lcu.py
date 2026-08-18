@@ -255,7 +255,11 @@ class LCUClient:
                 raise_on_error=True,
             )
             return True
-        except LCUError:
+        except LCUError as error:
+            logger.warning(
+                f"LCU PATCH /lol-champ-select/v1/session/actions/{action_id} "
+                f"rejected: {error}"
+            )
             return False
 
     def owned_champions_result(self) -> Optional[List[Dict[str, Any]]]:

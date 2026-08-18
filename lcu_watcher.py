@@ -31,7 +31,9 @@ from utils.lcu import lcu
 
 # Arena: thời gian chờ bans lộ tối đa trước khi fallback chọn theo chain
 _BANS_REVEAL_TIMEOUT = 40
-_ACTION_VERIFY_TIMEOUT = 1.0
+# LCU request timeout is 3s; allow one slow state propagation window without
+# trusting the PATCH response by itself.
+_ACTION_VERIFY_TIMEOUT = 2.0
 _ACTION_VERIFY_INTERVAL = 0.1
 
 _STATUS_ALERT = (
@@ -454,21 +456,34 @@ class LcuWatcher(threading.Thread):
     ) -> bool:
         """PATCH one action and verify the LCU state changed to that champion."""
         if not lcu.set_action_champion(action_id, champion_id):
+            self._arena_event(
+                f"{action_type.capitalize()}: LCU từ chối PATCH — đang thử lại",
+                "orange",
+            )
             return False
 
         deadline = time.monotonic() + _ACTION_VERIFY_TIMEOUT
-        observed: object = None
+        last_reason = "chưa đọc được action"
         while time.monotonic() < deadline:
             known, live = self._live_action(action_type, action_id)
-            if known and live is not None:
+            if not known:
+                last_reason = "không đọc được session live"
+            elif live is None:
+                last_reason = "action đã biến mất"
+            else:
                 observed = live.get("championId", 0)
+                last_reason = f"client vẫn báo championId={observed}"
                 if observed == champion_id:
                     return True
             time.sleep(_ACTION_VERIFY_INTERVAL)
 
+        logger.warning(
+            f"Arena {action_type} action {action_id}: PATCH accepted, "
+            f"read-back failed ({last_reason})"
+        )
         self._arena_event(
-            f"{action_type.capitalize()}: không xác minh được trạng thái — "
-            f"PATCH không thành công, đang thử lại",
+            f"{action_type.capitalize()}: PATCH đã nhận nhưng chưa xác minh — "
+            "đang thử lại",
             "orange",
         )
         return False
