@@ -62,7 +62,7 @@ class AntiFateApp(ctk.CTk):
         super().__init__()
         # self.withdraw()  # Temporarily disabled to debug visibility
 
-        # Load geometry from config
+        # Load geometry from config — migrate from old narrow layout if needed
         saved_geo = config_manager.get("window_geometry")
         if saved_geo:
             try:
@@ -73,7 +73,8 @@ class AntiFateApp(ctk.CTk):
         else:
             self.geometry(AppConfig.GEOMETRY)
 
-        self.minsize(360, 540)
+        # Enforce new wide minimum: old configs saved narrow geometry
+        self.minsize(720, 520)
         self.resizable(True, True)  # Allow resizing
         self.configure(fg_color=Colors.BG)
 
@@ -543,43 +544,6 @@ class AntiFateApp(ctk.CTk):
         self.arena_config_note.pack(fill="x", padx=10, pady=(2, 8))
         # Compatibility alias for existing callers.
         self.arena_summary_label = self.arena_config_note
-        self.arena_live_frame = ctk.CTkFrame(
-            body,
-            fg_color=Colors.SECONDARY,
-            border_color=Colors.BORDER,
-            border_width=1,
-            corner_radius=6,
-        )
-        self.arena_live_frame.pack(fill="x", pady=(8, 0))
-        log_header = ctk.CTkFrame(self.arena_live_frame, fg_color="transparent")
-        log_header.pack(fill="x", padx=8, pady=(7, 4))
-        ctk.CTkLabel(
-            log_header,
-            text="Hoạt động gần đây",
-            anchor="w",
-            font=(AppConfig.FONT_FAMILY, 10, "bold"),
-            text_color=Colors.FG,
-        ).pack(side="left")
-        self.arena_live_count_label = ctk.CTkLabel(
-            log_header,
-            text="Chưa có hoạt động",
-            anchor="e",
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-            text_color=Colors.MUTED_FG,
-        )
-        self.arena_live_count_label.pack(side="right")
-        self.arena_live_rows = ctk.CTkFrame(
-            self.arena_live_frame,
-            fg_color="transparent",
-        )
-        self.arena_live_rows.pack(fill="x", padx=6, pady=(0, 6))
-        ctk.CTkLabel(
-            self.arena_live_rows,
-            text="Chưa có hoạt động.",
-            anchor="w",
-            font=(AppConfig.FONT_FAMILY, 10),
-            text_color=Colors.MUTED_FG,
-        ).pack(fill="x", padx=4, pady=(0, 2))
 
         for key, combo in self.arena_combos.items():
             combo.set(
@@ -1520,7 +1484,7 @@ class AntiFateApp(ctk.CTk):
             self.scale_dropdown.set(current_display)
 
     def create_widgets(self) -> None:
-        # 5. Footer (Pack FIRST with side=bottom to pin it at the very bottom)
+        # --- Footer (pinned bottom) ---
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.pack(side="bottom", fill="x", padx=24, pady=(0, 15))
 
@@ -1553,8 +1517,7 @@ class AntiFateApp(ctk.CTk):
             "<Button-1>", lambda e: webbrowser.open("https://x.com/GohansVN")
         )
 
-        # Version badge + UI Scale (thay badge resolution cũ — v2.0 LCU không
-        # phụ thuộc resolution, scale là setting cửa sổ nên để ở footer)
+        # Version badge + UI Scale
         ctk.CTkLabel(
             footer,
             text="v2.0",
@@ -1563,8 +1526,9 @@ class AntiFateApp(ctk.CTk):
         ).pack(side="right", padx=(0, 8))
         self._create_ui_scale_widget(footer)
 
-        # Main Layout (Pack SECOND with expand=True to fill remaining space)
-        # Use scrollable frame for main content
+        # --- Main Layout: 2-column grid ---
+        # Left column (65%): Arena champion-select controls
+        # Right column (35%): Status, Dimmer, LCU Automation, Action buttons
         self.main_container = ctk.CTkScrollableFrame(
             self,
             fg_color="transparent",
@@ -1572,13 +1536,29 @@ class AntiFateApp(ctk.CTk):
             scrollbar_button_hover_color=Colors.RING,
         )
         self.main_container.pack(fill="both", expand=True, padx=24, pady=(24, 0))
+        self.main_container.grid_columnconfigure(0, weight=65)
+        self.main_container.grid_columnconfigure(1, weight=35)
 
-        # Store reference for scroll binding (will be called after all widgets created)
-        main_container = self.main_container
+        # Left column — Arena (rộng hơn)
+        self.left_column = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        self._create_arena_section(self.left_column)
 
-        # 1. Status Heartbeat Card
-        self.status_card = CardFrame(main_container)
-        self.status_card.pack(fill="x", pady=(0, 15))
+        # Right column — Status, Settings, LCU, Actions
+        self.right_column = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.right_column.grid(row=0, column=1, sticky="nsew")
+        self._create_right_side(self.right_column)
+
+        # --- Bottom: Live Arena events (full-width, below the two columns) ---
+        # Wrapped in a frame inside main_container so a single scrollbar
+        # covers both columns AND the live events log below.
+        self.bottom_row = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.bottom_row.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
+        self.main_container.grid_rowconfigure(1, weight=1)
+
+        # Status Heartbeat Card (bottom row — always visible, no scroll needed)
+        self.status_card = CardFrame(self.bottom_row)
+        self.status_card.pack(fill="x", pady=(0, 12))
 
         # Status Label (Secondary)
         self.status_label = ctk.CTkLabel(
@@ -1602,8 +1582,56 @@ class AntiFateApp(ctk.CTk):
         # Start animation
         self.animate_heartbeat()
 
-        # 2. Settings Card
-        settings_card = CardFrame(main_container)
+        # --- Bottom: Live Arena events (full-width, below the two columns) ---
+        self._create_live_events(self.bottom_row)
+
+        # Setup scroll speed after all widgets are created
+        self._setup_native_scroll_speed(self.main_container)
+
+    def _create_live_events(self, parent) -> None:
+        """Create the live events log frame (bottom, full-width)."""
+        self.arena_live_frame = ctk.CTkFrame(
+            parent,
+            fg_color=Colors.SECONDARY,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=6,
+        )
+        self.arena_live_frame.pack(fill="x", pady=(0, 0))
+        log_header = ctk.CTkFrame(self.arena_live_frame, fg_color="transparent")
+        log_header.pack(fill="x", padx=8, pady=(7, 4))
+        ctk.CTkLabel(
+            log_header,
+            text="Hoạt động gần đây",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10, "bold"),
+            text_color=Colors.FG,
+        ).pack(side="left")
+        self.arena_live_count_label = ctk.CTkLabel(
+            log_header,
+            text="Chưa có hoạt động",
+            anchor="e",
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_live_count_label.pack(side="right")
+        self.arena_live_rows = ctk.CTkFrame(
+            self.arena_live_frame,
+            fg_color="transparent",
+        )
+        self.arena_live_rows.pack(fill="x", padx=6, pady=(0, 6))
+        ctk.CTkLabel(
+            self.arena_live_rows,
+            text="Chưa có hoạt động.",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(fill="x", padx=4, pady=(0, 2))
+
+    def _create_right_side(self, parent) -> None:
+        """Right column: Dimmer settings, LCU Automation toggles, and action buttons."""
+        # --- Settings Card (Dimmer) ---
+        settings_card = CardFrame(parent)
         settings_card.pack(fill="x", pady=(0, 15))
 
         # Dimmer Control
@@ -1694,8 +1722,8 @@ class AntiFateApp(ctk.CTk):
         )
         self.auto_dimmer_switch.pack(side="right")
 
-        # 3. LCU Automation Card
-        pref_card = CardFrame(main_container)
+        # --- LCU Automation Card ---
+        pref_card = CardFrame(parent)
         pref_card.pack(fill="x", pady=(0, 15))
 
         header = ctk.CTkFrame(pref_card, fg_color="transparent")
@@ -1751,11 +1779,8 @@ class AntiFateApp(ctk.CTk):
         )
         self.startup_switch.pack(side="right")
 
-        # 4. Arena Card (mọi setting nằm thẳng — không modal)
-        self._create_arena_section(main_container)
-
-        # 5. Action Buttons
-        btn_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        # --- Action Buttons ---
+        btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
         btn_frame.pack(fill="x", side="bottom")
 
         self.start_btn = ctk.CTkButton(

@@ -26,7 +26,7 @@ class AppConfig:
     VERSION: str = (
         "v2.0"  # Dimmer + LCU API only — pixel/reset/timer/sound/profile removed
     )
-    GEOMETRY: str = "360x540"  # Slightly taller for progress bar
+    GEOMETRY: str = "720x520"  # Wide 2-column: Arena (left) + Status/Dimmer/LCU (right)
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
     CONFIG_FILE: str = os.path.join(CONFIG_DIR, "config.json")
