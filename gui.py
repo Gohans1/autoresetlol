@@ -439,6 +439,65 @@ class AntiFateApp(ctk.CTk):
         ]:
             make_combo_row(body, key, label)
 
+        # Compact final configuration summary. This is separate from the
+        # LCU connection indicator: it shows the exact ban/pick plan.
+        self.arena_summary_frame = ctk.CTkFrame(
+            section,
+            fg_color=Colors.SECONDARY,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=6,
+        )
+        self.arena_summary_frame.pack(fill="x", padx=14, pady=(0, 12))
+
+        summary_header = ctk.CTkFrame(
+            self.arena_summary_frame,
+            fg_color="transparent",
+        )
+        summary_header.pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            summary_header,
+            text="Cấu hình Arena",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            text_color=Colors.FG,
+        ).pack(side="left")
+        self.arena_summary_badge = ctk.CTkLabel(
+            summary_header,
+            text="Đang kiểm tra",
+            width=100,
+            height=22,
+            corner_radius=5,
+            fg_color=Colors.BORDER,
+            text_color=Colors.MUTED_FG,
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+        )
+        self.arena_summary_badge.pack(side="right")
+
+        self.arena_summary_detail = ctk.CTkLabel(
+            self.arena_summary_frame,
+            text="Đang kiểm tra cài đặt...",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_summary_detail.pack(fill="x", padx=10, pady=(0, 4))
+
+        self.arena_summary_rows = ctk.CTkFrame(
+            self.arena_summary_frame,
+            fg_color="transparent",
+        )
+        self.arena_summary_rows.pack(fill="x", padx=10, pady=(0, 2))
+        self.arena_summary_note = ctk.CTkLabel(
+            self.arena_summary_frame,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=360,
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_summary_note.pack(fill="x", padx=10, pady=(2, 8))
 
         for key, combo in self.arena_combos.items():
             combo.set(
@@ -790,7 +849,7 @@ class AntiFateApp(ctk.CTk):
     def _refresh_arena_validation(
         self, force_errors: bool = False
     ) -> List[ArenaConfigIssue]:
-        """Refresh field states and the user-facing Arena summary."""
+        """Refresh fields and the final ban/pick configuration summary."""
         issues = self._arena_draft_issues() + self._arena_config_issues()
         if force_errors:
             for issue in issues:
@@ -825,14 +884,94 @@ class AntiFateApp(ctk.CTk):
             detail = "Cấu hình có thể sử dụng."
 
         try:
+            # Small footer badge: status only.
             self._footer_arena_badge.configure(
                 text=badge_text,
                 fg_color=summary_color,
                 text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
             )
+
+            # Full user-facing summary: exact ban, pick chain, and bot state.
+            self.arena_summary_badge.configure(
+                text=badge_text,
+                fg_color=summary_color,
+                text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
+            )
+            self.arena_summary_detail.configure(
+                text=detail,
+                text_color=Colors.FG if summary_color == Colors.GREEN else summary_color,
+            )
+            for child in self.arena_summary_rows.winfo_children():
+                child.destroy()
+
+            scale = config_manager.get("ui_scale") or 1.0
+            wraplength = int(360 / max(0.8, float(scale)))
+
+            def add_row(label: str, value: str, tag: str, tag_color: str) -> None:
+                row = ctk.CTkFrame(self.arena_summary_rows, fg_color="transparent")
+                row.pack(fill="x", pady=(0, 3))
+                ctk.CTkLabel(
+                    row,
+                    text=label,
+                    width=48,
+                    anchor="w",
+                    font=(AppConfig.FONT_FAMILY, 10, "bold"),
+                    text_color=Colors.MUTED_FG,
+                ).pack(side="left")
+                ctk.CTkLabel(
+                    row,
+                    text=tag,
+                    width=68,
+                    height=20,
+                    corner_radius=4,
+                    fg_color=tag_color,
+                    text_color=Colors.BG if tag_color != Colors.BORDER else Colors.MUTED_FG,
+                    font=(AppConfig.FONT_FAMILY, 9, "bold"),
+                ).pack(side="right")
+                ctk.CTkLabel(
+                    row,
+                    text=value,
+                    anchor="w",
+                    justify="left",
+                    wraplength=wraplength,
+                    font=(AppConfig.FONT_FAMILY, 10),
+                    text_color=Colors.FG,
+                ).pack(side="left", fill="x", expand=True, padx=(4, 6))
+
+            add_row(
+                "Cấm",
+                self._arena_summary_value("ban"),
+                "Bật" if auto_ban else "Tắt",
+                Colors.GREEN if auto_ban else Colors.BORDER,
+            )
+            pick_values = " → ".join(
+                self._arena_summary_value(key) for key in ("main", "b1", "b2", "b3")
+            )
+            add_row(
+                "Chọn",
+                pick_values,
+                "Bật" if auto_pick else "Tắt",
+                Colors.GREEN if auto_pick else Colors.BORDER,
+            )
+            add_row(
+                "Bot",
+                "Đang hoạt động" if self._arena_automation_enabled else "Chưa bắt đầu",
+                "Đang chạy" if self._arena_automation_enabled else "Chưa chạy",
+                Colors.BLUE if self._arena_automation_enabled else Colors.BORDER,
+            )
+
+            notes = []
+            if has_active_saved_ids and not self._arena_roster_known:
+                notes.append("Đang chờ trò chơi xác nhận tướng đã lưu.")
             if issues:
-                issue_text = self._arena_issue_text(issues[0]) if issues else detail
-                self._footer_arena_badge.configure(text=f"{badge_text}: {issue_text[:20]}")
+                notes.append(
+                    "Cần hoàn thành:\n"
+                    + "\n".join(f"• {self._arena_issue_text(issue)}" for issue in issues)
+                )
+            self.arena_summary_note.configure(
+                text="\n".join(notes),
+                text_color=summary_color if notes else Colors.MUTED_FG,
+            )
         except Exception:
             pass
         return issues
