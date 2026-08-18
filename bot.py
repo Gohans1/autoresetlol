@@ -1,29 +1,36 @@
+"""Bot LCU — chấp nhận trận + phát hiện dodge qua API local của client LoL.
+
+Thay thế hoàn toàn bot pixel cũ (v2.0): không click chuột, không nhìn màn
+hình, không reset queue, không đếm giờ. Mọi trạng thái đọc từ LCU:
+
+  - Chờ ready-check "InProgress" → POST accept
+  - Xác nhận vào champ select qua gameflow-phase
+  - Dodge/decline = phase ChampSelect → Matchmaking (client TỰ quay lại
+    hàng chờ — Riot xác nhận — bot không bao giờ click Find Match)
+
+Giữ nguyên contract callback với GUI: update_status_callback,
+on_stop_callback, on_success_callback (reset_dimmer),
+on_champ_select_callback (switch_to_gaming_mode).
+"""
+
 import threading
 import time
-import winsound
-import pyautogui
-import ctypes
-import os
-from enum import Enum, auto
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 from config import config_manager
-from constants import GameInfo, UIStatus, Colors, AppConfig, SOUND_OPTIONS, RESOURCE_DIR
+from constants import AppConfig, UIStatus
 from logger import logger
-from utils.windows import (
-    find_window_by_title,
-    force_focus_window,
-    get_foreground_window_title,
-)
+from utils.lcu import lcu
 
-
-class BotState(Enum):
-    SEARCHING = auto()
-    VERIFYING = auto()
-    STANDBY = auto()
+# Sau accept, client mất vài giây để nhảy sang ChampSelect — trong khoảng
+# này phase vẫn "Matchmaking"/"Lobby" là BÌNH THƯỜNG. Chỉ coi là dodge
+# khi phase quay lại queue sau khoảng grace này.
+VERIFY_GRACE = 5
 
 
 class AntiFateBot(threading.Thread):
+    """Vòng đời 1 phiên tìm trận: chờ trận → accept → xác nhận champ select."""
+
     def __init__(
         self,
         update_status_callback: Callable[[str, str], None],
@@ -31,305 +38,127 @@ class AntiFateBot(threading.Thread):
         on_success_callback: Optional[Callable[[], None]] = None,
         on_champ_select_callback: Optional[Callable[[], None]] = None,
     ):
-        super().__init__()
+        super().__init__(daemon=True)
         self.update_status_callback = update_status_callback
         self.on_stop_callback = on_stop_callback
         self.on_success_callback = on_success_callback
         self.on_champ_select_callback = on_champ_select_callback
         self.running: bool = False
-        self.state: BotState = BotState.SEARCHING
-        self.start_search_time: float = 0
-        self.sound_played: bool = False
-        self.daemon = True
+        self._accepting: bool = False
+        self._champ_select_notified: bool = False
+        self.verify_start_time: float = 0.0
+        self._error_until: float = 0.0  # giữ status lỗi vài giây, không ghi đè
 
-    def focus_client(self) -> None:
-        """Attempts to bring the League of Legends client to the foreground."""
-        hwnd = find_window_by_title(GameInfo.CLIENT_TITLE)
-        if hwnd:
-            force_focus_window(hwnd)
-        else:
-            logger.warning("League client window not found!")
-
-    def is_game_running(self) -> bool:
-        """Checks if the actual LoL Game (not Client) is the foreground window."""
-        title = get_foreground_window_title()
-        return GameInfo.GAME_TITLE in title
-
-    def check_pixel(
-        self, pos: list[int], color: list[int], tolerance: int = 10
-    ) -> bool:
-        """Safe wrapper for pixel matching."""
-        try:
-            return pyautogui.pixelMatchesColor(
-                pos[0], pos[1], (color[0], color[1], color[2]), tolerance=tolerance
-            )
-        except Exception as e:
-            logger.error(f"Pixel check failed at {pos}: {e}")
-            return False
+    # ---- vòng lặp ----
 
     def run(self) -> None:
         self.running = True
-        self.state = BotState.SEARCHING
-        self.start_search_time = time.time()
-
-        logger.info(f"Bot started. Threshold: {config_manager.get('reset_time')}s")
         self.update_status_callback(UIStatus.RUNNING, "blue")
+        logger.info("Bot LCU started (auto-accept + dodge detect)")
 
         while self.running:
             try:
-                if self.state == BotState.SEARCHING:
-                    self._handle_searching()
-                elif self.state == BotState.VERIFYING:
-                    self._handle_verifying()
-                elif self.state == BotState.STANDBY:
-                    self._handle_standby()
-
-                time.sleep(1)
-
+                self._tick()
             except Exception as e:
                 logger.error(f"Bot Loop Error: {e}")
-                self.update_status_callback(f"Error: {str(e)[:20]}", "red")
+                self.update_status_callback(
+                    "Đã xảy ra lỗi. Hãy thử lại.", "red"
+                )
                 time.sleep(2)
-
-    def _handle_searching(self) -> None:
-        current_time = time.time()
-        elapsed_float = current_time - self.start_search_time
-        elapsed = int(elapsed_float)
-        reset_threshold = int(config_manager.get("reset_time") or 120)
-
-        # 0. Global Champ Select Check (Handles manual accept or late start)
-        champ_pos = config_manager.get("champ_select_pixel_pos")
-        champ_color = config_manager.get("champ_select_pixel_color")
-        if champ_pos and champ_pos != [0, 0]:
-            if self.check_pixel(champ_pos, champ_color):
-                logger.info("CHAMP SELECT DETECTED (Manual/Late)! Entering Standby.")
-                self.state = BotState.STANDBY
-                if self.on_success_callback:
-                    self.on_success_callback()
-                if self.on_champ_select_callback:
-                    self.on_champ_select_callback()
-                self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
-                # Removed sleep, UI should handle state-based colors
-                return
-
-        # Sound Notification (1.5s before reset) - only if auto_reset is enabled
-        if (
-            config_manager.get("reset_sound_enabled")
-            and config_manager.get("auto_reset_enabled")
-            and not self.sound_played
-        ):
-            if elapsed_float >= (reset_threshold - 1.5):
-                logger.info("Playing pre-reset sound alert...")
-                self.sound_played = True
-
-                def _play():
-                    try:
-                        # Use Windows MCI to play MP3/WAV with volume control
-                        mci = ctypes.windll.winmm.mciSendStringW
-                        alias = "bot_notify"
-
-                        # Get selected sound file path
-                        selected_key = config_manager.get("selected_sound") or "notify"
-                        if selected_key in SOUND_OPTIONS:
-                            rel_path = SOUND_OPTIONS[selected_key][1]
-                            file_path = os.path.join(RESOURCE_DIR, rel_path)
-                        else:
-                            file_path = AppConfig.NOTIFY_SOUND
-
-                        volume = config_manager.get("sound_volume") or 50
-
-                        mci(f"close {alias}", None, 0, 0)
-                        mci(
-                            f'open "{file_path}" type mpegvideo alias {alias}',
-                            None,
-                            0,
-                            0,
-                        )
-                        mci(
-                            f"setaudio {alias} volume to {int(volume * 10)}", None, 0, 0
-                        )
-                        mci(f"play {alias} wait", None, 0, 0)
-                        mci(f"close {alias}", None, 0, 0)
-                    except Exception as e:
-                        logger.error(f"Failed to play sound: {e}")
-                        winsound.MessageBeep(winsound.MB_ICONASTERISK)
-
-                threading.Thread(target=_play, daemon=True).start()
-
-        # 1. Check Accept (Conditional - only if auto_accept_enabled)
-        if config_manager.get("auto_accept_enabled"):
-            accept_pos = config_manager.get("accept_match_pixel_pos")
-            accept_color = config_manager.get("accept_match_pixel_color")
-
-            if self.check_pixel(accept_pos, accept_color):
-                logger.info("MATCH FOUND! Accepting...")
-                self.update_status_callback(UIStatus.MATCH_FOUND, "green")
-
-                pyautogui.click(accept_pos[0], accept_pos[1])
-
-                # Transition to VERIFYING instead of STANDBY
-                self.state = BotState.VERIFYING
-                self.verify_start_time = time.time()
-                self.update_status_callback("Verifying Accept...", "purple")
-                time.sleep(0.5)
-                return
-
-        # 2. Check Timer & Reset (Conditional - only if auto_reset_enabled)
-        if config_manager.get("auto_reset_enabled"):
-            self.update_status_callback(
-                UIStatus.SEARCHING.format(elapsed, reset_threshold), "blue"
-            )
-
-            if elapsed >= reset_threshold:
-                logger.info("Threshold reached. Context checking...")
-
-                if self.is_game_running():
-                    logger.info("User IN GAME. Skipping focus.")
-                    self.start_search_time = time.time()
-                    self.sound_played = False
-                    time.sleep(1)
-                    return
-
-                # Focus Client
-                self.focus_client()
-
-                # Verify Queue State
-                queue_pos = config_manager.get("in_queue_pixel_pos")
-                queue_color = config_manager.get("in_queue_pixel_color")
-
-                if self.check_pixel(queue_pos, queue_color):
-                    self._perform_reset()
-                else:
-                    logger.info("Queue pixel not found. Resetting timer.")
-                    self.start_search_time = time.time()
-                    self.sound_played = False
-        else:
-            # Auto Reset disabled: show static "0 / threshold", don't count
-            self.start_search_time = time.time()  # Keep resetting so timer stays at 0
-            self.update_status_callback(
-                UIStatus.SEARCHING.format(0, reset_threshold), "gray"
-            )
-
-    def _handle_verifying(self) -> None:
-        """
-        New state to handle the 'Accept Clicked' limbo.
-        We wait here until we confirm we are in Champ Select.
-        If we see the queue again, we go back to SEARCHING.
-        """
-        elapsed = time.time() - self.verify_start_time
-        timeout = AppConfig.VERIFY_TIMEOUT
-        remaining = int(max(0, timeout - elapsed))
-
-        # Update UI with countdown
-        self.update_status_callback(UIStatus.VERIFYING.format(remaining), "purple")
-
-        # 1. Check if we are in Champ Select (Success Condition)
-        champ_pos = config_manager.get("champ_select_pixel_pos")
-        champ_color = config_manager.get("champ_select_pixel_color")
-
-        # Only check if config is set (not [0,0])
-        if champ_pos and champ_pos != [0, 0]:
-            if self.check_pixel(champ_pos, champ_color):
-                logger.info("CHAMP SELECT CONFIRMED! Entering Standby.")
-                self.state = BotState.STANDBY
-                if self.on_success_callback:
-                    self.on_success_callback()
-                if self.on_champ_select_callback:
-                    self.on_champ_select_callback()
-                self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
-                return
-
-        # 2. Check if we are back in Queue (Failure Condition - Dodge/Decline)
-        queue_pos = config_manager.get("in_queue_pixel_pos")
-        queue_color = config_manager.get("in_queue_pixel_color")
-
-        if self.check_pixel(queue_pos, queue_color):
-            logger.info(
-                "Back in queue detected (Decline/Dodge). Hard Resetting immediately."
-            )
-            self._perform_reset()
-            self.state = BotState.SEARCHING
-            return
-
-        # 3. Check Accept button again (Retry Condition)
-        accept_pos = config_manager.get("accept_match_pixel_pos")
-        accept_color = config_manager.get("accept_match_pixel_color")
-
-        if self.check_pixel(accept_pos, accept_color):
-            logger.info("Accept button reappeared. Clicking again...")
-            pyautogui.click(accept_pos[0], accept_pos[1])
-            time.sleep(0.5)
-            return
-
-        # 4. Timeout
-        if elapsed > timeout:
-            logger.warning(
-                "Verification timed out. Assuming logic failure or lag. Hard Resetting."
-            )
-            # Force focus client to foreground because if match was declined,
-            # the client might still be in background (user alt-tabbed).
-            self.focus_client()
-            time.sleep(0.5)
-
-            self._perform_reset()
-            self.state = BotState.SEARCHING
-            self.update_status_callback("Verify Timeout", "orange")
             time.sleep(1)
 
-    def _perform_reset(self) -> None:
-        logger.info("Resetting queue...")
-        self.sound_played = False
-        self.update_status_callback(UIStatus.RESETTING, "red")
+    def _tick(self) -> None:
+        phase = lcu.gameflow_phase()
+        if phase is None:
+            self.update_status_callback("Chưa kết nối được với League of Legends", "red")
+            return
 
-        find_pos = config_manager.get("find_match_button_pos")
-        cancel_pos = config_manager.get("cancel_button_pos")
-        minimize_pos = config_manager.get("minimize_btn_pos")
+        if phase == "ChampSelect":
+            # Báo UI một lần, nhưng giữ worker sống để bắt dodge sau ChampSelect.
+            self._accepting = False
+            if not self._champ_select_notified:
+                logger.info("Champ select confirmed via LCU — auto-accept remains active.")
+                self._champ_select_notified = True
+                self.update_status_callback(UIStatus.CHAMP_SELECT, "green")
+                if self.on_success_callback:
+                    self.on_success_callback()
+                if self.on_champ_select_callback:
+                    self.on_champ_select_callback()
+            return
 
-        # Cancel
-        pyautogui.click(cancel_pos[0], cancel_pos[1])
-        time.sleep(1.0)  # Shortened wait
+        if phase == "InProgress":
+            # Giữ auto-accept sống; trận sau có thể xuất hiện sau khi kết thúc
+            # game hoặc sau một dodge trong ChampSelect.
+            self._leave_champ_select_if_needed(phase)
+            self.update_status_callback("Trong trận — auto-accept đang chờ", "green")
+            return
 
-        # Find Match
-        pyautogui.click(find_pos[0], find_pos[1])
-
-        # Auto Minimize (New Feature)
-        if minimize_pos and minimize_pos != [0, 0]:
-            time.sleep(0.2)
-            logger.info(f"Minimizing client at {minimize_pos}")
-            pyautogui.click(minimize_pos[0], minimize_pos[1])
-
-        self.start_search_time = time.time()
-        self.sound_played = False
-        self.update_status_callback(UIStatus.RESTARTING, "blue")
-
-    def _handle_standby(self) -> None:
-        queue_pos = config_manager.get("in_queue_pixel_pos")
-        queue_color = config_manager.get("in_queue_pixel_color")
-
-        # Optimistic check
-        if self.check_pixel(queue_pos, queue_color):
-            if self.is_game_running():
-                logger.info("In Game during standby. Ignoring.")
-                time.sleep(5)
-                return
-
-            # Verification Focus
-            logger.info("Potential Dodge. Verifying...")
-            self.focus_client()
-            time.sleep(0.5)
-
-            if self.check_pixel(queue_pos, queue_color):
-                logger.info("Dodge CONFIRMED. Hard Reset.")
-                self.update_status_callback(UIStatus.DODGE_DETECTED, "red")
-                self._perform_reset()
-                self.state = BotState.SEARCHING
-            else:
-                logger.info("False alarm.")
-                self.update_status_callback(UIStatus.STANDBY, "green")
+        self._leave_champ_select_if_needed(phase)
+        if self._accepting:
+            self._handle_verifying(phase)
         else:
-            self.update_status_callback(UIStatus.STANDBY, "green")
+            self._handle_searching(phase)
 
-    def stop(self, found: bool = False) -> None:
+    def _leave_champ_select_if_needed(self, phase: str) -> None:
+        if self._champ_select_notified:
+            logger.info(f"Champ Select ended → phase {phase}; auto-accept remains active.")
+            self._champ_select_notified = False
+
+    def _handle_searching(self, phase: Optional[str]) -> None:
+        if time.time() < self._error_until:
+            return  # đang hiển thị lỗi accept — không ghi đè bằng SEARCHING
+        self.update_status_callback(UIStatus.SEARCHING, "blue")
+
+        if not config_manager.get("auto_accept_enabled"):
+            return
+
+        rc = lcu.ready_check()
+        if not rc or rc.get("state") != "InProgress":
+            return  # chưa có trận
+
+        logger.info("MATCH FOUND! Accepting via LCU...")
+        self.update_status_callback(UIStatus.MATCH_FOUND, "green")
+        if not lcu.accept_match():
+            logger.error("Accept failed via LCU")
+            self.update_status_callback("Không thể xác nhận trận — đang thử lại", "red")
+            self._error_until = time.time() + 3
+            return
+
+        self._accepting = True
+        self.verify_start_time = time.time()
+        self.update_status_callback(UIStatus.ACCEPTED, "purple")
+
+    def _handle_verifying(self, phase: Optional[str]) -> None:
+        elapsed = time.time() - self.verify_start_time
+        remaining = int(max(0, AppConfig.VERIFY_TIMEOUT - elapsed))
+        self.update_status_callback(UIStatus.VERIFYING.format(remaining), "purple")
+
+        # Dodge / decline: phase quay lại queue sau grace period.
+        if phase in ("Matchmaking", "Lobby") and elapsed >= VERIFY_GRACE:
+            logger.info("Dodge/decline detected (ChampSelect -> queue). Client requeues itself.")
+            self.update_status_callback(UIStatus.DODGED, "orange")
+            self._accepting = False
+            return
+
+        # Hết thời gian xác nhận — dừng an toàn, KHÔNG bao giờ click gì.
+        if elapsed > AppConfig.VERIFY_TIMEOUT:
+            logger.warning("Verify timed out without champ select — stopping (no clicks).")
+            self._finish_stop("Verify Timeout", "orange")
+
+    # ---- kết thúc ----
+
+    def _finish_stop(self, status: str, color: str) -> None:
+        self.running = False
+        self.update_status_callback(status, color)
+        if self.on_stop_callback:
+            self.on_stop_callback(status, color)
+
+    def stop(self) -> None:
         self.running = False
         if self.on_stop_callback:
             self.on_stop_callback(UIStatus.STOPPED, "gray")
+        # Chờ loop tắt hẳn — tránh 2 bot chạy song song khi user Start lại
+        # trong vài giây. join 1s đủ: running=False đã set, bot tự thoát sau
+        # ≤1s (request LCU timeout 3s là edge hiếm — không block UI lâu).
+        if self.is_alive():
+            self.join(timeout=1)

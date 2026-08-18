@@ -1,5 +1,4 @@
-from enum import Enum, auto
-from typing import Tuple, List, Dict, Any, Tuple
+from typing import List, Dict, Tuple
 import os
 import sys
 
@@ -25,24 +24,17 @@ CONFIG_DIR = get_config_dir()
 class AppConfig:
     APP_NAME: str = "Anti-Fate Engine"
     VERSION: str = (
-        "v1.10"  # Profile System + Auto Dimmer Switch Toggle + Settings Modal
+        "v2.0"  # Dimmer + LCU API only — pixel/reset/timer/sound/profile removed
     )
     GEOMETRY: str = "360x540"  # Slightly taller for progress bar
     THEME_MODE: str = "Dark"
     THEME_COLOR: str = "blue"
     CONFIG_FILE: str = os.path.join(CONFIG_DIR, "config.json")
     LOG_FILE: str = os.path.join(CONFIG_DIR, "autoresetlol.log")
-    NOTIFY_SOUND: str = os.path.join(RESOURCE_DIR, "assets", "notify.mp3")
-    SOUNDS_DIR: str = os.path.join(RESOURCE_DIR, "assets", "sounds")
     APP_ICON: str = os.path.join(RESOURCE_DIR, "assets", "avatar.ico")
     APP_AVATAR: str = os.path.join(RESOURCE_DIR, "assets", "avatar.png")
     VERIFY_TIMEOUT: int = 25
     FONT_FAMILY: str = "Inter"
-
-
-class GameInfo:
-    CLIENT_TITLE: str = "League of Legends"
-    GAME_TITLE: str = "League of Legends (TM) Client"
 
 
 class Colors:
@@ -79,53 +71,30 @@ class Colors:
 
 
 class DefaultConfig:
-    FIND_MATCH_POS: List[int] = [100, 200]
-    CANCEL_POS: List[int] = [100, 200]
-    QUEUE_PIXEL_POS: List[int] = [105, 250]
-    QUEUE_PIXEL_COLOR: List[int] = [20, 25, 30]
-    ACCEPT_POS: List[int] = [500, 400]
-    ACCEPT_COLOR: List[int] = [10, 200, 50]
-    MINIMIZE_POS: List[int] = [0, 0]
-    RESET_TIME: int = 120
     DIMMER_VALUE: int = 100
     DIMMER_ENABLED: bool = True
     DIMMER_MODE: str = "browsing"  # "gaming" or "browsing"
     DIMMER_GAMING_VALUE: int = 100  # Brightness for gaming mode
     DIMMER_BROWSING_VALUE: int = 100  # Brightness for browsing mode
     AUTO_DIMMER_SWITCH_ENABLED: bool = (
-        True  # Auto switch to gaming mode on champ select
+        True  # Auto switch gaming/browsing theo trạng thái trận (LCU)
     )
-    RESET_SOUND_ENABLED: bool = True
     AUTO_STARTUP_ENABLED: bool = False
-    AUTO_ACCEPT_ENABLED: bool = True  # Auto-accept match when found
-    AUTO_RESET_ENABLED: bool = True  # Auto-reset queue after threshold
-    SELECTED_SOUND: str = "notify"  # Default sound file name (without extension)
-    CURRENT_PROFILE: str = "Profile 1"  # Active profile name
+    AUTO_ACCEPT_ENABLED: bool = True  # Auto-accept match khi có trận (LCU)
+    AUTO_BAN_ENABLED: bool = False  # Arena: auto-ban preset champion
+    AUTO_PICK_ENABLED: bool = False  # Arena: auto-pick main -> backups (hover only)
+    ARENA_BAN_CHAMP: int = 0  # Champion id to ban in Arena (0 = unset)
+    ARENA_PICK_CHAIN: List[int] = [0, 0, 0, 0]  # Main + 3 backups, priority order
     UI_SCALE: float = 1.0  # UI zoom scale (0.8 - 1.5)
 
 
-# Available notification sounds (bundled in assets/sounds/)
-# Format: key -> (display_name, relative_path)
-SOUND_OPTIONS: Dict[str, Tuple[str, str]] = {
-    "notify": ("Classic Ping", "assets/notify.mp3"),
-    "chime": ("Soft Chime", "assets/sounds/chime.wav"),
-    "alert": ("Alert Beep", "assets/sounds/alert.wav"),
-    "bell": ("Bell Ring", "assets/sounds/bell.wav"),
-    "ding": ("Quick Ding", "assets/sounds/ding.wav"),
-    "pop": ("Pop Sound", "assets/sounds/pop.wav"),
-}
-
-
 class UIStatus:
-    READY = "Status: Ready"
-    RUNNING = "Status: Running..."
-    STOPPED = "Stopped"
-    SEARCHING = "Searching... ({}/{})s"
-    MATCH_FOUND = "MATCH FOUND! Accepting..."
-    ACCEPTED = "Accepted. Monitoring..."
-    RESETTING = "Resetting Queue..."
-    DODGE_DETECTED = "Dodge detected! Resetting..."
-    RESTARTING = "Queue Reset. Restarting..."
-    VERIFYING = "Verifying Champ Select... {}s"
-    CHAMP_SELECT = "Champ Select Confirmed!"
-    STANDBY = "Standby (In Game/Lobby)..."
+    READY = "Sẵn sàng"
+    RUNNING = "Đang hoạt động"
+    STOPPED = "Đã dừng"
+    SEARCHING = "Đang tìm trận"
+    MATCH_FOUND = "Có trận mới — đang chờ xác nhận"
+    ACCEPTED = "Đã nhận trận — đang vào chọn tướng"
+    VERIFYING = "Đang vào trận — còn {} giây"
+    CHAMP_SELECT = "Đang chọn tướng"
+    DODGED = "Trận bị hủy — đang tìm trận mới"

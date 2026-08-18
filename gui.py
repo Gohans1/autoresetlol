@@ -2,18 +2,37 @@ import customtkinter as ctk  # type: ignore
 import tkinter as tk
 from tkinter import messagebox
 import webbrowser
-import pyautogui
 import time
 import threading
 import os
-from typing import Optional, Dict
-from PIL import Image, ImageTk, ImageDraw
+import winsound  # beep khi app minimize (toast vô hình lúc đó)
+from typing import Optional, Dict, List, Tuple
+from PIL import Image, ImageDraw
 
+from arena_config import (
+    NOT_SET_LABEL,
+    NO_PICK_LABEL,
+    OPTIONAL_PICK_FIELDS,
+    ArenaConfigIssue,
+    champion_id,
+    validate_arena_config,
+)
 from config import config_manager
 from bot import AntiFateBot
-from utils.windows import GammaController, set_autostart
-from constants import AppConfig, Colors, UIStatus, SOUND_OPTIONS, RESOURCE_DIR
+from lcu_watcher import LcuWatcher
+from utils.windows import DimmerController, set_autostart
+from utils.lcu import lcu
+from constants import AppConfig, Colors, UIStatus
 from logger import logger
+
+
+ARENA_FIELD_LABELS = {
+    "ban": "Tướng cần ban",
+    "main": "Tướng chính",
+    "b1": "Dự bị 1",
+    "b2": "Dự bị 2",
+    "b3": "Dự bị 3",
+}
 
 # Set Theme
 ctk.set_appearance_mode(AppConfig.THEME_MODE)
@@ -32,979 +51,6 @@ class CardFrame(ctk.CTkFrame):
         )
 
 
-class InfoModal(ctk.CTkToplevel):
-    def __init__(self, master, **kwargs):
-        super().__init__(master, **kwargs)
-        self.title("Information")
-        self.geometry("300x200")
-        self.resizable(False, False)
-        self.configure(fg_color=Colors.BG)
-
-        # Center over parent
-        self.update_idletasks()
-        parent_x = master.winfo_x()
-        parent_y = master.winfo_y()
-        parent_w = master.winfo_width()
-        parent_h = master.winfo_height()
-
-        x = parent_x + (parent_w // 2) - (300 // 2)
-        y = parent_y + (parent_h // 2) - (200 // 2)
-        self.geometry(f"+{x}+{y}")
-
-        self.attributes("-topmost", True)
-        self.focus_set()
-
-        # UI Elements
-        container = ctk.CTkFrame(self, fg_color="transparent")
-        container.pack(fill="both", expand=True, padx=20, pady=20)
-
-        ctk.CTkLabel(
-            container,
-            text="RESOLUTION DISCLAIMER",
-            font=(AppConfig.FONT_FAMILY, 14, "bold"),
-            text_color=Colors.PRIMARY,
-        ).pack(pady=(0, 10))
-
-        ctk.CTkLabel(
-            container,
-            text="This engine is specifically tuned for League client at these resolutions:",
-            font=(AppConfig.FONT_FAMILY, 11),
-            text_color=Colors.MUTED_FG,
-            wraplength=250,
-        ).pack(pady=(0, 15))
-
-        badge_frame = ctk.CTkFrame(
-            container, fg_color=Colors.SECONDARY, corner_radius=6
-        )
-        badge_frame.pack(pady=(0, 20))
-
-        ctk.CTkLabel(
-            badge_frame,
-            text="1920x1080 • 1600x900",
-            font=("JetBrains Mono", 12, "bold"),
-            text_color=Colors.BLUE,
-            padx=12,
-            pady=4,
-        ).pack()
-
-        ctk.CTkButton(
-            container,
-            text="ACKNOWLEDGE",
-            font=(AppConfig.FONT_FAMILY, 11, "bold"),
-            height=32,
-            fg_color=Colors.CARD,
-            border_color=Colors.BORDER,
-            border_width=1,
-            text_color=Colors.FG,
-            hover_color=Colors.SECONDARY,
-            command=self.destroy,
-        ).pack(fill="x")
-
-
-class SettingsModal(ctk.CTkToplevel):
-    """Advanced Settings Modal for coordinate/color configuration and profile management."""
-
-    # Coordinate settings: (config_key, label)
-    COORD_SETTINGS = [
-        ("find_match_button_pos", "Find Match Button"),
-        ("cancel_button_pos", "Cancel Button"),
-        ("minimize_btn_pos", "Minimize Button"),
-        ("in_queue_pixel_pos", "Queue Detection Pixel"),
-        ("accept_match_pixel_pos", "Accept Button Pixel"),
-        ("champ_select_pixel_pos", "Champ Select Pixel"),
-    ]
-
-    # Color settings: (config_key, label)
-    COLOR_SETTINGS = [
-        ("in_queue_pixel_color", "Queue Detection Color"),
-        ("accept_match_pixel_color", "Accept Button Color"),
-        ("champ_select_pixel_color", "Champ Select Color"),
-    ]
-
-    def __init__(self, master, **kwargs):
-        super().__init__(master, **kwargs)
-        self.master_app = master
-        self.title("Advanced Settings")
-        self.geometry("520x650")
-        self.resizable(False, True)
-        self.configure(fg_color=Colors.BG)
-
-        # Center over parent
-        self.update_idletasks()
-        parent_x = master.winfo_x()
-        parent_y = master.winfo_y()
-        parent_w = master.winfo_width()
-        parent_h = master.winfo_height()
-
-        x = parent_x + (parent_w // 2) - (520 // 2)
-        y = parent_y + (parent_h // 2) - (650 // 2)
-        self.geometry(f"+{x}+{y}")
-
-        self.attributes("-topmost", True)
-        self.focus_set()
-
-        # Storage for entry widgets
-        self.coord_entries: Dict[str, tuple] = {}  # key -> (x_entry, y_entry)
-        self.color_entries: Dict[
-            str, tuple
-        ] = {}  # key -> (r_entry, g_entry, b_entry, preview_frame)
-
-        # Pick mode state
-        self._pick_mode_active = False
-        self._pick_target_key: Optional[str] = None
-        self._pick_overlay: Optional[tk.Toplevel] = None
-
-        self._create_widgets()
-        self._load_current_values()
-
-    def _get_os_scroll_lines(self) -> int:
-        """Get the number of lines to scroll from Windows settings."""
-        try:
-            import winreg
-
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop")
-            value, _ = winreg.QueryValueEx(key, "WheelScrollLines")
-            winreg.CloseKey(key)
-            return int(value)
-        except Exception:
-            return 3  # Windows default
-
-    def _setup_native_scroll_speed(self, scrollable_frame) -> None:
-        """Override scroll speed to match OS settings."""
-        scroll_lines = self._get_os_scroll_lines()
-
-        # Get the internal canvas from CTkScrollableFrame
-        canvas = scrollable_frame._parent_canvas
-
-        def on_mousewheel(event):
-            # delta is typically 120 per notch on Windows
-            # Scroll by OS-configured number of lines (each line ~20 pixels)
-            pixels_per_line = 20
-            scroll_amount = -1 * (event.delta // 120) * scroll_lines * pixels_per_line
-            canvas.yview_scroll(scroll_amount, "units")
-            return "break"  # Prevent default handling
-
-        # Bind to the scrollable frame and all its children
-        scrollable_frame.bind("<MouseWheel>", on_mousewheel)
-        scrollable_frame.bind_all("<MouseWheel>", on_mousewheel)
-
-    def _create_widgets(self) -> None:
-        """Build the modal UI."""
-        # Header with title and close button
-        header = ctk.CTkFrame(self, fg_color=Colors.SECONDARY, height=50)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        ctk.CTkLabel(
-            header,
-            text="⚙️ Advanced Settings",
-            font=(AppConfig.FONT_FAMILY, 16, "bold"),
-            text_color=Colors.PRIMARY,
-        ).pack(side="left", padx=15, pady=10)
-
-        close_btn = ctk.CTkButton(
-            header,
-            text="✕",
-            width=30,
-            height=30,
-            corner_radius=6,
-            fg_color="transparent",
-            text_color=Colors.MUTED_FG,
-            hover_color=Colors.RED,
-            font=(AppConfig.FONT_FAMILY, 14, "bold"),
-            command=self.destroy,
-        )
-        close_btn.pack(side="right", padx=10)
-
-        # Main scrollable container
-        main_scroll = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
-            scrollbar_button_color=Colors.BORDER,
-            scrollbar_button_hover_color=Colors.RING,
-        )
-        main_scroll.pack(fill="both", expand=True, padx=15, pady=15)
-
-        # Fix scroll speed to match OS settings
-        self._setup_native_scroll_speed(main_scroll)
-
-        # === Profile Section ===
-        self._create_profile_section(main_scroll)
-
-        # Separator
-        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
-            fill="x", pady=15
-        )
-
-        # === Coordinates Section ===
-        self._create_coordinates_section(main_scroll)
-
-        # Separator
-        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
-            fill="x", pady=15
-        )
-
-        # === Color Section ===
-        self._create_color_section(main_scroll)
-
-        # Separator
-        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
-            fill="x", pady=15
-        )
-
-        # NOTE: Auto Dimmer Switch Toggle moved to main UI in v1.11
-        # self._create_auto_dimmer_section(main_scroll)
-
-        # Separator
-        ctk.CTkFrame(main_scroll, fg_color=Colors.BORDER, height=1).pack(
-            fill="x", pady=15
-        )
-
-        # === UI Scale Section ===
-        self._create_ui_scale_section(main_scroll)
-
-        # Footer
-        footer = ctk.CTkFrame(self, fg_color=Colors.SECONDARY, height=50)
-        footer.pack(fill="x", side="bottom")
-        footer.pack_propagate(False)
-
-        ctk.CTkButton(
-            footer,
-            text="Save & Close",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
-            height=35,
-            fg_color=Colors.GREEN,
-            text_color=Colors.BG,
-            hover_color="#6b7f2e",
-            corner_radius=6,
-            command=self._save_and_close,
-        ).pack(side="right", padx=15, pady=8)
-
-        ctk.CTkLabel(
-            footer,
-            text="Changes auto-save on pick",
-            font=(AppConfig.FONT_FAMILY, 10),
-            text_color=Colors.MUTED_FG,
-        ).pack(side="left", padx=15, pady=8)
-
-    def _create_profile_section(self, parent) -> None:
-        """Create profile management section."""
-        section = CardFrame(parent)
-        section.pack(fill="x", pady=(0, 5))
-
-        # Section header
-        ctk.CTkLabel(
-            section,
-            text="📁 Profile Management",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
-            text_color=Colors.PRIMARY,
-        ).pack(anchor="w", padx=15, pady=(10, 5))
-
-        # Profile selection row
-        select_row = ctk.CTkFrame(section, fg_color="transparent")
-        select_row.pack(fill="x", padx=15, pady=5)
-
-        ctk.CTkLabel(
-            select_row,
-            text="Current:",
-            font=(AppConfig.FONT_FAMILY, 11),
-            text_color=Colors.FG,
-        ).pack(side="left", padx=(0, 10))
-
-        self.profile_dropdown = ctk.CTkOptionMenu(
-            select_row,
-            values=config_manager.get_profile_names(),
-            command=self._on_profile_changed,
-            font=(AppConfig.FONT_FAMILY, 11),
-            fg_color=Colors.SECONDARY,
-            button_color=Colors.BORDER,
-            button_hover_color=Colors.RING,
-            dropdown_fg_color=Colors.CARD,
-            dropdown_hover_color=Colors.SECONDARY,
-            text_color=Colors.FG,
-            dropdown_text_color=Colors.FG,
-            corner_radius=6,
-            width=150,
-            height=28,
-        )
-        self.profile_dropdown.set(config_manager.get_current_profile())
-        self.profile_dropdown.pack(side="left", fill="x", expand=True)
-
-        # Action buttons row
-        btn_row = ctk.CTkFrame(section, fg_color="transparent")
-        btn_row.pack(fill="x", padx=15, pady=(5, 10))
-
-        ctk.CTkButton(
-            btn_row,
-            text="✏️ Rename",
-            width=80,
-            height=28,
-            corner_radius=6,
-            fg_color=Colors.SECONDARY,
-            text_color=Colors.FG,
-            hover_color=Colors.BORDER,
-            font=(AppConfig.FONT_FAMILY, 10),
-            command=self._rename_profile,
-        ).pack(side="left", padx=(0, 5))
-
-        ctk.CTkButton(
-            btn_row,
-            text="➕ New",
-            width=70,
-            height=28,
-            corner_radius=6,
-            fg_color=Colors.BLUE,
-            text_color=Colors.FG,
-            hover_color="#3a7ab0",
-            font=(AppConfig.FONT_FAMILY, 10),
-            command=self._create_new_profile,
-        ).pack(side="left", padx=(0, 5))
-
-        ctk.CTkButton(
-            btn_row,
-            text="🗑️ Delete",
-            width=75,
-            height=28,
-            corner_radius=6,
-            fg_color=Colors.RED,
-            text_color=Colors.FG,
-            hover_color="#c4493f",
-            font=(AppConfig.FONT_FAMILY, 10),
-            command=self._delete_profile,
-        ).pack(side="left")
-
-    def _create_coordinates_section(self, parent) -> None:
-        """Create coordinates configuration section."""
-        section = CardFrame(parent)
-        section.pack(fill="x", pady=5)
-
-        # Section header
-        ctk.CTkLabel(
-            section,
-            text="📍 Coordinates",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
-            text_color=Colors.PRIMARY,
-        ).pack(anchor="w", padx=15, pady=(10, 5))
-
-        # Column headers
-        header_row = ctk.CTkFrame(section, fg_color="transparent")
-        header_row.pack(fill="x", padx=15, pady=2)
-
-        ctk.CTkLabel(
-            header_row,
-            text="Setting",
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-            text_color=Colors.MUTED_FG,
-            width=140,
-            anchor="w",
-        ).pack(side="left")
-
-        ctk.CTkLabel(
-            header_row,
-            text="X",
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-            text_color=Colors.MUTED_FG,
-            width=60,
-        ).pack(side="left", padx=5)
-
-        ctk.CTkLabel(
-            header_row,
-            text="Y",
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-            text_color=Colors.MUTED_FG,
-            width=60,
-        ).pack(side="left", padx=5)
-
-        # Coordinate entries
-        for config_key, label in self.COORD_SETTINGS:
-            row = ctk.CTkFrame(section, fg_color="transparent")
-            row.pack(fill="x", padx=15, pady=3)
-
-            ctk.CTkLabel(
-                row,
-                text=label,
-                font=(AppConfig.FONT_FAMILY, 10),
-                text_color=Colors.FG,
-                width=140,
-                anchor="w",
-            ).pack(side="left")
-
-            x_entry = ctk.CTkEntry(
-                row,
-                width=60,
-                height=26,
-                font=("JetBrains Mono", 10),
-                fg_color=Colors.SECONDARY,
-                border_color=Colors.BORDER,
-                text_color=Colors.PRIMARY,
-                justify="center",
-                corner_radius=4,
-            )
-            x_entry.pack(side="left", padx=5)
-
-            y_entry = ctk.CTkEntry(
-                row,
-                width=60,
-                height=26,
-                font=("JetBrains Mono", 10),
-                fg_color=Colors.SECONDARY,
-                border_color=Colors.BORDER,
-                text_color=Colors.PRIMARY,
-                justify="center",
-                corner_radius=4,
-            )
-            y_entry.pack(side="left", padx=5)
-
-            pick_btn = ctk.CTkButton(
-                row,
-                text="📍 Pick",
-                width=60,
-                height=26,
-                corner_radius=4,
-                fg_color=Colors.BLUE,
-                text_color=Colors.FG,
-                hover_color="#3a7ab0",
-                font=(AppConfig.FONT_FAMILY, 10),
-                command=lambda k=config_key: self._start_pick_mode(k),
-            )
-            pick_btn.pack(side="left", padx=(10, 0))
-
-            self.coord_entries[config_key] = (x_entry, y_entry)
-
-        # Add padding at bottom
-        ctk.CTkFrame(section, fg_color="transparent", height=5).pack()
-
-    def _create_color_section(self, parent) -> None:
-        """Create color configuration section."""
-        section = CardFrame(parent)
-        section.pack(fill="x", pady=5)
-
-        # Section header
-        ctk.CTkLabel(
-            section,
-            text="🎨 Colors",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
-            text_color=Colors.PRIMARY,
-        ).pack(anchor="w", padx=15, pady=(10, 5))
-
-        # Column headers
-        header_row = ctk.CTkFrame(section, fg_color="transparent")
-        header_row.pack(fill="x", padx=15, pady=2)
-
-        ctk.CTkLabel(
-            header_row,
-            text="Setting",
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-            text_color=Colors.MUTED_FG,
-            width=130,
-            anchor="w",
-        ).pack(side="left")
-
-        for lbl in ["R", "G", "B"]:
-            ctk.CTkLabel(
-                header_row,
-                text=lbl,
-                font=(AppConfig.FONT_FAMILY, 9, "bold"),
-                text_color=Colors.MUTED_FG,
-                width=40,
-            ).pack(side="left", padx=2)
-
-        # Color entries
-        for config_key, label in self.COLOR_SETTINGS:
-            row = ctk.CTkFrame(section, fg_color="transparent")
-            row.pack(fill="x", padx=15, pady=3)
-
-            ctk.CTkLabel(
-                row,
-                text=label,
-                font=(AppConfig.FONT_FAMILY, 10),
-                text_color=Colors.FG,
-                width=130,
-                anchor="w",
-            ).pack(side="left")
-
-            r_entry = ctk.CTkEntry(
-                row,
-                width=40,
-                height=26,
-                font=("JetBrains Mono", 10),
-                fg_color=Colors.SECONDARY,
-                border_color=Colors.BORDER,
-                text_color=Colors.RED,
-                justify="center",
-                corner_radius=4,
-            )
-            r_entry.pack(side="left", padx=2)
-
-            g_entry = ctk.CTkEntry(
-                row,
-                width=40,
-                height=26,
-                font=("JetBrains Mono", 10),
-                fg_color=Colors.SECONDARY,
-                border_color=Colors.BORDER,
-                text_color=Colors.GREEN,
-                justify="center",
-                corner_radius=4,
-            )
-            g_entry.pack(side="left", padx=2)
-
-            b_entry = ctk.CTkEntry(
-                row,
-                width=40,
-                height=26,
-                font=("JetBrains Mono", 10),
-                fg_color=Colors.SECONDARY,
-                border_color=Colors.BORDER,
-                text_color=Colors.BLUE,
-                justify="center",
-                corner_radius=4,
-            )
-            b_entry.pack(side="left", padx=2)
-
-            # Color preview square
-            preview = ctk.CTkFrame(
-                row,
-                width=26,
-                height=26,
-                corner_radius=4,
-                fg_color=Colors.SECONDARY,
-                border_color=Colors.BORDER,
-                border_width=1,
-            )
-            preview.pack(side="left", padx=(5, 5))
-            preview.pack_propagate(False)
-
-            pick_btn = ctk.CTkButton(
-                row,
-                text="📍 Pick",
-                width=60,
-                height=26,
-                corner_radius=4,
-                fg_color=Colors.BLUE,
-                text_color=Colors.FG,
-                hover_color="#3a7ab0",
-                font=(AppConfig.FONT_FAMILY, 10),
-                command=lambda k=config_key: self._start_pick_mode(k),
-            )
-            pick_btn.pack(side="left", padx=(5, 0))
-
-            self.color_entries[config_key] = (r_entry, g_entry, b_entry, preview)
-
-            # Bind entry changes to update preview
-            for entry in (r_entry, g_entry, b_entry):
-                entry.bind(
-                    "<KeyRelease>",
-                    lambda e, k=config_key: self._update_color_preview(k),
-                )
-
-        # Add padding at bottom
-        ctk.CTkFrame(section, fg_color="transparent", height=5).pack()
-
-    def _create_auto_dimmer_section(self, parent) -> None:
-        """Create auto dimmer switch toggle section."""
-        section = CardFrame(parent)
-        section.pack(fill="x", pady=5)
-
-        row = ctk.CTkFrame(section, fg_color="transparent")
-        row.pack(fill="x", padx=15, pady=10)
-
-        ctk.CTkLabel(
-            row,
-            text="🎮 Auto switch to Gaming mode",
-            font=(AppConfig.FONT_FAMILY, 11),
-            text_color=Colors.FG,
-        ).pack(side="left")
-
-        # Lấy giá trị config, mặc định True nếu không có
-        config_val = config_manager.get("auto_dimmer_switch_enabled")
-        if config_val is None:
-            config_val = True
-        self.auto_dimmer_switch_var = ctk.BooleanVar(value=config_val)
-
-        self.auto_dimmer_switch = ctk.CTkSwitch(
-            row,
-            text="",
-            width=40,
-            variable=self.auto_dimmer_switch_var,
-            command=self._on_auto_dimmer_switch_changed,
-            progress_color=Colors.GREEN,
-            fg_color=Colors.SECONDARY,
-        )
-        self.auto_dimmer_switch.pack(side="right")
-
-    def _load_current_values(self) -> None:
-        """Load current config values into entries."""
-        # Load coordinates
-        for config_key, (x_entry, y_entry) in self.coord_entries.items():
-            pos = config_manager.get(config_key)
-            if pos and len(pos) >= 2:
-                x_entry.delete(0, "end")
-                x_entry.insert(0, str(pos[0]))
-                y_entry.delete(0, "end")
-                y_entry.insert(0, str(pos[1]))
-
-        # Load colors
-        for config_key, (
-            r_entry,
-            g_entry,
-            b_entry,
-            preview,
-        ) in self.color_entries.items():
-            color = config_manager.get(config_key)
-            if color and len(color) >= 3:
-                r_entry.delete(0, "end")
-                r_entry.insert(0, str(color[0]))
-                g_entry.delete(0, "end")
-                g_entry.insert(0, str(color[1]))
-                b_entry.delete(0, "end")
-                b_entry.insert(0, str(color[2]))
-                self._update_color_preview(config_key)
-
-    def _update_color_preview(self, config_key: str) -> None:
-        """Update the color preview square based on RGB entries."""
-        if config_key not in self.color_entries:
-            return
-
-        r_entry, g_entry, b_entry, preview = self.color_entries[config_key]
-        try:
-            r = int(r_entry.get() or 0)
-            g = int(g_entry.get() or 0)
-            b = int(b_entry.get() or 0)
-            # Clamp values
-            r = max(0, min(255, r))
-            g = max(0, min(255, g))
-            b = max(0, min(255, b))
-            hex_color = f"#{r:02x}{g:02x}{b:02x}"
-            preview.configure(fg_color=hex_color)
-        except ValueError:
-            preview.configure(fg_color=Colors.SECONDARY)
-
-    def _on_profile_changed(self, profile_name: str) -> None:
-        """Handle profile selection change."""
-        config_manager.switch_profile(profile_name)
-        self._load_current_values()
-        logger.info(f"Switched to profile: {profile_name}")
-
-    def _refresh_profile_dropdown(self) -> None:
-        """Refresh the profile dropdown with current profiles."""
-        profiles = config_manager.get_profile_names()
-        self.profile_dropdown.configure(values=profiles)
-        self.profile_dropdown.set(config_manager.get_current_profile())
-
-    def _rename_profile(self) -> None:
-        """Open dialog to rename current profile."""
-        current = config_manager.get_current_profile()
-
-        dialog = ctk.CTkInputDialog(
-            text=f"New name for '{current}':",
-            title="Rename Profile",
-        )
-        new_name = dialog.get_input()
-
-        if new_name and new_name.strip() and new_name != current:
-            if config_manager.rename_profile(current, new_name.strip()):
-                self._refresh_profile_dropdown()
-                messagebox.showinfo("Success", f"Profile renamed to '{new_name}'")
-            else:
-                messagebox.showerror(
-                    "Error", "Failed to rename profile. Name may already exist."
-                )
-
-    def _create_new_profile(self) -> None:
-        """Create a new profile."""
-        # Generate next profile number
-        existing = config_manager.get_profile_names()
-        num = len(existing) + 1
-        new_name = f"Profile {num}"
-
-        # Ensure unique name
-        while new_name in existing:
-            num += 1
-            new_name = f"Profile {num}"
-
-        if config_manager.create_profile(
-            new_name, copy_from=config_manager.get_current_profile()
-        ):
-            config_manager.switch_profile(new_name)
-            self._refresh_profile_dropdown()
-            self._load_current_values()
-            messagebox.showinfo("Success", f"Created profile '{new_name}'")
-
-    def _delete_profile(self) -> None:
-        """Delete current profile with confirmation."""
-        current = config_manager.get_current_profile()
-        profiles = config_manager.get_profile_names()
-
-        if len(profiles) <= 1:
-            messagebox.showwarning("Cannot Delete", "Cannot delete the last profile.")
-            return
-
-        if messagebox.askyesno(
-            "Confirm Delete", f"Delete profile '{current}'?\nThis cannot be undone."
-        ):
-            if config_manager.delete_profile(current):
-                self._refresh_profile_dropdown()
-                self._load_current_values()
-                messagebox.showinfo("Deleted", f"Profile '{current}' deleted.")
-
-    def _on_auto_dimmer_switch_changed(self) -> None:
-        """Handle auto dimmer switch toggle."""
-        is_enabled = self.auto_dimmer_switch_var.get()
-        config_manager.set("auto_dimmer_switch_enabled", is_enabled)
-        logger.info(f"Auto dimmer switch toggled: {is_enabled}")
-
-    def _start_pick_mode(self, config_key: str) -> None:
-        """Start the screen pick mode for a coordinate/color."""
-        self._pick_target_key = config_key
-        self._pick_mode_active = True
-
-        # Hide this modal
-        self.withdraw()
-
-        # Create a fullscreen transparent overlay for pick mode
-        self._pick_overlay = tk.Toplevel()
-        self._pick_overlay.attributes("-fullscreen", True)
-        self._pick_overlay.attributes("-topmost", True)
-        self._pick_overlay.attributes("-alpha", 0.01)  # Nearly invisible
-        self._pick_overlay.configure(cursor="crosshair")
-        self._pick_overlay.bind("<Button-1>", self._on_pick_click)
-        self._pick_overlay.bind("<Escape>", self._cancel_pick_mode)
-
-        # Focus the overlay
-        self._pick_overlay.focus_force()
-
-    def _on_pick_click(self, event) -> None:
-        """Handle click during pick mode."""
-        if not self._pick_mode_active:
-            return
-
-        try:
-            # Get mouse position
-            x, y = pyautogui.position()
-
-            # Get pixel color at position
-            try:
-                pixel = pyautogui.pixel(x, y)
-                r, g, b = pixel
-            except Exception:
-                r, g, b = 0, 0, 0
-
-            # Determine if this is a coord-only or coord+color pick
-            config_key = self._pick_target_key
-
-            if config_key in self.coord_entries:
-                # Update coordinate entries
-                x_entry, y_entry = self.coord_entries[config_key]
-                x_entry.delete(0, "end")
-                x_entry.insert(0, str(x))
-                y_entry.delete(0, "end")
-                y_entry.insert(0, str(y))
-
-                # Save to config
-                config_manager.set(config_key, [x, y])
-
-            # For pixel detection settings, also update associated color
-            # Map coord key to color key
-            coord_to_color_map = {
-                "in_queue_pixel_pos": "in_queue_pixel_color",
-                "accept_match_pixel_pos": "accept_match_pixel_color",
-                "champ_select_pixel_pos": "champ_select_pixel_color",
-            }
-
-            if config_key in coord_to_color_map:
-                color_key = coord_to_color_map[config_key]
-                if color_key in self.color_entries:
-                    r_entry, g_entry, b_entry, preview = self.color_entries[color_key]
-                    r_entry.delete(0, "end")
-                    r_entry.insert(0, str(r))
-                    g_entry.delete(0, "end")
-                    g_entry.insert(0, str(g))
-                    b_entry.delete(0, "end")
-                    b_entry.insert(0, str(b))
-                    self._update_color_preview(color_key)
-
-                    # Save color to config
-                    config_manager.set(color_key, [r, g, b])
-
-            # Also handle if picking from color section directly
-            if config_key in self.color_entries:
-                r_entry, g_entry, b_entry, preview = self.color_entries[config_key]
-                r_entry.delete(0, "end")
-                r_entry.insert(0, str(r))
-                g_entry.delete(0, "end")
-                g_entry.insert(0, str(g))
-                b_entry.delete(0, "end")
-                b_entry.insert(0, str(b))
-                self._update_color_preview(config_key)
-
-                # Save color to config
-                config_manager.set(config_key, [r, g, b])
-
-                # Also update associated coord if exists
-                color_to_coord_map = {
-                    "in_queue_pixel_color": "in_queue_pixel_pos",
-                    "accept_match_pixel_color": "accept_match_pixel_pos",
-                    "champ_select_pixel_color": "champ_select_pixel_pos",
-                }
-                if config_key in color_to_coord_map:
-                    coord_key = color_to_coord_map[config_key]
-                    if coord_key in self.coord_entries:
-                        x_entry, y_entry = self.coord_entries[coord_key]
-                        x_entry.delete(0, "end")
-                        x_entry.insert(0, str(x))
-                        y_entry.delete(0, "end")
-                        y_entry.insert(0, str(y))
-                        config_manager.set(coord_key, [x, y])
-
-            logger.info(
-                f"Picked: {config_key} -> pos=({x}, {y}), color=({r}, {g}, {b})"
-            )
-
-        except Exception as e:
-            logger.error(f"Error during pick: {e}")
-
-        finally:
-            self._end_pick_mode()
-
-    def _cancel_pick_mode(self, event=None) -> None:
-        """Cancel pick mode on Escape."""
-        self._end_pick_mode()
-
-    def _end_pick_mode(self) -> None:
-        """End pick mode and restore modal."""
-        self._pick_mode_active = False
-        self._pick_target_key = None
-
-        if self._pick_overlay:
-            self._pick_overlay.destroy()
-            self._pick_overlay = None
-
-        # Show modal again
-        self.deiconify()
-        self.attributes("-topmost", True)
-        self.focus_force()
-
-    def _create_ui_scale_section(self, parent) -> None:
-        """Create UI Scale selection section."""
-        section = CardFrame(parent)
-        section.pack(fill="x", pady=(0, 5))
-
-        # Section header
-        ctk.CTkLabel(
-            section,
-            text="🔍 UI Scale",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
-            text_color=Colors.PRIMARY,
-        ).pack(anchor="w", padx=15, pady=(10, 5))
-
-        # Description
-        ctk.CTkLabel(
-            section,
-            text="Adjust interface size. Requires restart to apply.",
-            font=(AppConfig.FONT_FAMILY, 10),
-            text_color=Colors.MUTED_FG,
-        ).pack(anchor="w", padx=15, pady=(0, 10))
-
-        # Scale selection row
-        scale_row = ctk.CTkFrame(section, fg_color="transparent")
-        scale_row.pack(fill="x", padx=15, pady=(0, 15))
-
-        ctk.CTkLabel(
-            scale_row,
-            text="Scale:",
-            font=(AppConfig.FONT_FAMILY, 11),
-            text_color=Colors.FG,
-        ).pack(side="left", padx=(0, 10))
-
-        # Scale options: 80% to 150% in 10% increments
-        scale_options = ["80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%"]
-
-        # Get current scale and convert to display format
-        current_scale = config_manager.get("ui_scale") or 1.0
-        current_display = f"{int(current_scale * 100)}%"
-        if current_display not in scale_options:
-            current_display = "100%"
-
-        self.scale_dropdown = ctk.CTkOptionMenu(
-            scale_row,
-            values=scale_options,
-            command=self._on_scale_changed,
-            width=100,
-            height=32,
-            fg_color=Colors.SECONDARY,
-            button_color=Colors.BORDER,
-            button_hover_color=Colors.RING,
-            dropdown_fg_color=Colors.CARD,
-            dropdown_hover_color=Colors.SECONDARY,
-            font=(AppConfig.FONT_FAMILY, 11),
-        )
-        self.scale_dropdown.set(current_display)
-        self.scale_dropdown.pack(side="left")
-
-    def _on_scale_changed(self, choice: str) -> None:
-        """Handle scale selection change."""
-        # Parse the percentage string to float
-        new_scale = int(choice.replace("%", "")) / 100.0
-        current_scale = config_manager.get("ui_scale") or 1.0
-
-        if new_scale == current_scale:
-            return
-
-        # Ask for confirmation
-        result = messagebox.askyesno(
-            "Restart Required",
-            f"Changing UI scale to {choice} requires restarting the app.\n\n"
-            "Do you want to restart now?",
-            parent=self,
-        )
-
-        if result:
-            # Save new scale and restart
-            config_manager.set("ui_scale", new_scale)
-            logger.info(f"UI scale changed to {new_scale}")
-            self.master_app._restart_app()
-        else:
-            # Revert dropdown to current value
-            current_display = f"{int(current_scale * 100)}%"
-            self.scale_dropdown.set(current_display)
-
-    def _save_and_close(self) -> None:
-        """Save all current entry values to config and close."""
-        try:
-            # Save all coordinates
-            for config_key, (x_entry, y_entry) in self.coord_entries.items():
-                try:
-                    x = int(x_entry.get() or 0)
-                    y = int(y_entry.get() or 0)
-                    config_manager.set(config_key, [x, y])
-                except ValueError:
-                    pass
-
-            # Save all colors
-            for config_key, (
-                r_entry,
-                g_entry,
-                b_entry,
-                _,
-            ) in self.color_entries.items():
-                try:
-                    r = int(r_entry.get() or 0)
-                    g = int(g_entry.get() or 0)
-                    b = int(b_entry.get() or 0)
-                    config_manager.set(config_key, [r, g, b])
-                except ValueError:
-                    pass
-
-            logger.info("Settings saved successfully.")
-
-        except Exception as e:
-            logger.error(f"Error saving settings: {e}")
-            messagebox.showerror("Error", f"Failed to save settings: {e}")
-
-        self.destroy()
-
-
 class AntiFateApp(ctk.CTk):
     def __init__(self):
         # Apply UI scaling BEFORE super().__init__() for clean initialization
@@ -1012,7 +58,6 @@ class AntiFateApp(ctk.CTk):
         saved_scale = max(0.8, min(1.5, float(saved_scale)))  # Clamp to valid range
         ctk.set_widget_scaling(saved_scale)
         ctk.set_window_scaling(saved_scale)
-        self._current_scale = saved_scale
 
         super().__init__()
         # self.withdraw()  # Temporarily disabled to debug visibility
@@ -1038,7 +83,7 @@ class AntiFateApp(ctk.CTk):
         # Animation state
         self.pulse_val = 0.0
         self.pulse_dir = 1
-        self.pulse_speed = 0.05
+        self.pulse_speed = 0.2  # x4: 5 Hz tick compensates
         self.current_state_color = Colors.STATUS_GRAY
         self.current_state_color_name = "gray"
         self.is_animating = True
@@ -1053,27 +98,22 @@ class AntiFateApp(ctk.CTk):
                 # Use AppID to force Windows to show the correct icon on the taskbar
                 import ctypes
 
-                myappid = "sisyphus.autoresetlol.antifate.v7"
+                myappid = f"sisyphus.autoresetlol.antifate.{AppConfig.VERSION}"
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception as e:
             logger.error(f"Could not set window icon: {e}")
 
         self.bot: Optional[AntiFateBot] = None
-        self.dimmer = GammaController()
-        self._info_modal: Optional[ctk.CTkToplevel] = None
-        self._settings_modal: Optional[ctk.CTkToplevel] = None
-
+        self._arena_automation_enabled = False
+        self._arena_live_events: List[Tuple[str, str, str]] = []
+        self.dimmer = DimmerController()
+        self._dimmer_watchdog_id = None
+        self._watchdog_drift_count = 0
         # Variables
-        self.reset_time_var = tk.StringVar()
-        self.reset_time_var.trace_add("write", self._on_time_changed)
         self.dimmer_enabled_var = ctk.BooleanVar(value=True)
-        self.reset_sound_enabled_var = ctk.BooleanVar(value=True)
         self.auto_startup_enabled_var = ctk.BooleanVar(value=False)
         self.auto_accept_enabled_var = ctk.BooleanVar(value=True)
-        self.auto_reset_enabled_var = ctk.BooleanVar(value=True)
-        self.sound_volume_var = tk.IntVar(value=50)
         self.dimmer_mode_var = tk.StringVar(value="browsing")  # "gaming" or "browsing"
-        self.selected_sound_var = tk.StringVar(value="notify")
         self._skip_dimmer_save = False  # Flag to prevent double-save in auto-switch
         self._dimmer_reset_visual = (
             False  # Flag to prevent config override after visual reset
@@ -1082,6 +122,9 @@ class AntiFateApp(ctk.CTk):
         self._setup_icons()
         self.create_widgets()
         self.load_settings()
+
+        # Safety watchdog: keeps the dimmer in sync with the slider
+        self._start_dimmer_watchdog()
 
         # Setup scroll speed after all widgets are created
         self._setup_native_scroll_speed(self.main_container)
@@ -1092,8 +135,19 @@ class AntiFateApp(ctk.CTk):
 
         # Bind events
         self.bind("<Configure>", self._on_window_configure)
-        self.bind("<FocusOut>", self._on_focus_out)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.bind_all("<ButtonRelease-1>", self._on_suggest_global_click, add="+")
+        self.bind_all("<MouseWheel>", self._on_suggest_scroll, add="+")
+
+        # LCU watcher — dimmer auto-switch + arena ban/pick (luôn chạy nền).
+        # Khởi động sau khi UI đã dựng xong (callback cần widget tồn tại).
+        self.arena_watcher = LcuWatcher(
+            update_status_callback=self.update_status,
+            on_gaming_callback=self.switch_to_gaming_mode,
+            on_browsing_callback=self.switch_to_browsing_mode,
+            arena_event_callback=self.update_arena_live,
+        )
+        self.arena_watcher.start()
 
     def _setup_icons(self) -> None:
         """Initialize all state icons using PIL and Load Avatar."""
@@ -1193,6 +247,1278 @@ class AntiFateApp(ctk.CTk):
                 light_image=img, dark_image=img, size=(64, 64)
             )
 
+    # ================= Arena — Tự ban / chọn tướng (dời từ SettingsModal) =================
+
+    def _create_arena_section(self, parent) -> None:
+        """Arena champ select: toggle ban/pick + chọn tướng (main/dự bị/ban).
+
+        Danh sách tướng lấy từ LCU (owned-champions-minimal) ở background —
+        không block UI. Tướng lưu theo championId (ổn định hơn tên).
+        """
+        section = CardFrame(parent)
+        section.pack(fill="x", pady=(0, 5))
+
+        header = ctk.CTkFrame(section, fg_color="transparent")
+        header.pack(fill="x", padx=14, pady=(12, 2))
+        ctk.CTkLabel(
+            header,
+            text="🧙 Arena — Tự ban / chọn tướng",
+            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            header,
+            text="chỉ chạy khi chơi Arena",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(side="right")
+
+        body = ctk.CTkFrame(section, fg_color="transparent")
+        body.pack(fill="x", padx=14, pady=(0, 12))
+
+        # Toggles — mặc định TẮT, user bật từng cái để test dần.
+        # Mỗi toggle nằm NGAY TRÊN combo của nó: ban ↔ "Tướng cần ban",
+        # pick ↔ "Tướng chính + dự bị 1-3" (không tách lẻ).
+        self.auto_ban_var = ctk.BooleanVar(
+            value=bool(config_manager.get("auto_ban_enabled"))
+        )
+        self.auto_pick_var = ctk.BooleanVar(
+            value=bool(config_manager.get("auto_pick_enabled"))
+        )
+
+        # Comboboxes tướng
+        self._arena_owned: List[dict] = []
+        self._arena_roster_known = False
+        self._arena_display_to_id: Dict[str, int] = {}
+        self._arena_display_to_id_normalized: Dict[str, int] = {}
+        self._arena_id_to_display: Dict[int, str] = {}
+        self._arena_owned_ids: set[int] = set()
+        self._arena_cached_names = self._normalize_arena_champion_names(
+            config_manager.get("arena_champion_names")
+        )
+        self._refresh_arena_name_maps()
+        self.arena_combos: Dict[str, ctk.CTkComboBox] = {}
+        self.arena_field_status: Dict[str, ctk.CTkLabel] = {}
+        self._arena_field_error_visible: Dict[str, bool] = {
+            key: False for key in ("ban", "main", "b1", "b2", "b3")
+        }
+        # MRU — 5 tướng chọn gần nhất mỗi field (gợi ý lên đầu)
+        recent = config_manager.get("arena_recent")
+        if not isinstance(recent, dict):  # config.json sửa tay hỏng — an toàn
+            recent = {}
+        self._arena_recent: Dict[str, List[int]] = {}
+        for k in ("ban", "main", "b1", "b2", "b3"):
+            self._arena_recent[k] = [
+                c
+                for c in (recent.get(k) or [])
+                if isinstance(c, int) and not isinstance(c, bool) and c > 0
+            ][:5]
+        # Fetch generation — spam nút ⟳ có nhiều thread fetch chồng nhau;
+        # chỉ kết quả của generation MỚI NHẤT được áp dụng.
+        self._arena_fetch_gen: int = 0
+
+        chain = list(config_manager.get("arena_pick_chain") or [0, 0, 0, 0])
+        while len(chain) < 4:
+            chain.append(0)
+        self._arena_loaded_ids = {
+            "ban": config_manager.get("arena_ban_champ") or 0,
+            "main": chain[0],
+            "b1": chain[1],
+            "b2": chain[2],
+            "b3": chain[3],
+        }
+
+        def make_combo_row(parent, key, label) -> None:
+            """1 hàng: label + combo tướng (indent theo toggle chủ)."""
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", pady=3, padx=(20, 0))
+            ctk.CTkLabel(
+                row,
+                text=label,
+                width=110,
+                anchor="w",
+                font=(AppConfig.FONT_FAMILY, 11),
+                text_color=Colors.FG,
+            ).pack(side="left")
+            empty_label = (
+                NO_PICK_LABEL if key in OPTIONAL_PICK_FIELDS else NOT_SET_LABEL
+            )
+            combo = ctk.CTkComboBox(
+                row,
+                values=[empty_label],
+                width=200,
+                # CTkComboBox gọi command(value) — nhận value vào _v, giữ key
+                command=lambda _v, k=key: self._on_arena_combo(k),
+            )
+            combo.pack(side="left", fill="x", expand=True)
+            self.arena_combos[key] = combo
+            field_status = ctk.CTkLabel(
+                parent,
+                text="Chưa chọn",
+                anchor="w",
+                font=(AppConfig.FONT_FAMILY, 10),
+                text_color=Colors.MUTED_FG,
+            )
+            field_status.pack(fill="x", padx=(130, 0), pady=(0, 1))
+            self.arena_field_status[key] = field_status
+            # Gõ chữ → gợi ý HIỆN NGAY dưới ô (max 5); ↑↓ chọn; Enter xác nhận;
+            # Esc đóng; click entry → gõ sửa trực tiếp; mũi tên ▾ → 10 tướng
+            try:
+                combo._entry.bind(
+                    "<KeyRelease>",
+                    lambda e, k=key: self._on_arena_combo_key(k, e),
+                )
+                combo._entry.bind(
+                    "<Button-1>",
+                    lambda e, k=key: self._on_arena_combo_click(k),
+                )
+                combo._entry.bind(
+                    "<Down>",
+                    lambda e, k=key: self._suggest_nav(k, 1),
+                )
+                combo._entry.bind(
+                    "<Up>",
+                    lambda e, k=key: self._suggest_nav(k, -1),
+                )
+                combo._entry.bind(
+                    "<Return>",
+                    lambda e, k=key: self._suggest_enter(k),
+                )
+                combo._entry.bind(
+                    "<Escape>",
+                    lambda e: self._suggest_escape(),
+                )
+                combo._entry.bind(
+                    "<FocusOut>",
+                    lambda e, k=key: self.after(
+                        150, lambda: self._on_arena_combo_focus_out(k)
+                    ),
+                )
+                # Thay handler mũi tên CTk (tag_bind nội bộ _clicked) bằng
+                # tag_unbind + widget bind — mở danh sách rộng (max 10) 1 lần
+                # duy nhất, không double-fire
+                try:
+                    combo._canvas.tag_unbind("dropdown_arrow", "<Button-1>")
+                    combo._canvas.tag_unbind("right_parts", "<Button-1>")
+                except Exception:
+                    pass
+                combo._canvas.bind(
+                    "<Button-1>",
+                    lambda e, k=key: self._on_arena_combo_arrow(k),
+                )
+            except Exception as e:
+                logger.warning(f"Combo bind failed ({key}): {e}")
+
+        # --- Ban: toggle + combo tướng cần ban (cùng khu) ---
+        ctk.CTkSwitch(
+            body,
+            text="Auto ban tướng",
+            variable=self.auto_ban_var,
+            command=self._on_auto_ban_toggle,
+        ).pack(anchor="w", pady=(0, 2))
+        make_combo_row(body, "ban", "Tướng cần ban")
+
+        # --- Pick: toggle + chuỗi chính → dự bị (cùng khu) ---
+        ctk.CTkSwitch(
+            body,
+            text="Auto chọn tướng (main → dự bị, không khóa)",
+            variable=self.auto_pick_var,
+            command=self._on_auto_pick_toggle,
+        ).pack(anchor="w", pady=(10, 2))
+        for key, label in [
+            ("main", "Tướng chính"),
+            ("b1", "Dự bị 1"),
+            ("b2", "Dự bị 2"),
+            ("b3", "Dự bị 3"),
+        ]:
+            make_combo_row(body, key, label)
+
+        # Client status + retry (client có thể mở sau khi app start).
+        self.arena_client_card = ctk.CTkFrame(
+            body,
+            fg_color=Colors.CARD,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=8,
+        )
+        self.arena_client_card.pack(fill="x", pady=(10, 0))
+        client_header = ctk.CTkFrame(
+            self.arena_client_card,
+            fg_color="transparent",
+        )
+        client_header.pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            client_header,
+            text="Kết nối trò chơi",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            text_color=Colors.FG,
+        ).pack(side="left")
+        self.arena_status_badge = ctk.CTkLabel(
+            client_header,
+            text="Đang kết nối",
+            width=92,
+            height=22,
+            corner_radius=5,
+            fg_color=Colors.BORDER,
+            text_color=Colors.MUTED_FG,
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+        )
+        self.arena_status_badge.pack(side="right")
+        self.arena_status_label = ctk.CTkLabel(
+            self.arena_client_card,
+            text="Đang tìm League of Legends...",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_status_label.pack(fill="x", padx=10, pady=(0, 8))
+        ctk.CTkButton(
+            client_header,
+            text="Thử lại",
+            width=70,
+            height=22,
+            corner_radius=5,
+            fg_color=Colors.BLUE,
+            hover_color="#5593c9",
+            text_color=Colors.PRIMARY_FG,
+            font=(AppConfig.FONT_FAMILY, 10, "bold"),
+            command=self._reload_owned_champions,
+        ).pack(side="right", padx=(6, 0))
+
+        # Configuration summary shown as a user-facing status card.
+        self.arena_config_card = ctk.CTkFrame(
+            body,
+            fg_color=Colors.CARD,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=8,
+        )
+        self.arena_config_card.pack(fill="x", pady=(8, 0))
+        config_header = ctk.CTkFrame(
+            self.arena_config_card,
+            fg_color="transparent",
+        )
+        config_header.pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            config_header,
+            text="Cấu hình Arena",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            text_color=Colors.FG,
+        ).pack(side="left")
+        self.arena_config_badge = ctk.CTkLabel(
+            config_header,
+            text="Đang kiểm tra",
+            width=100,
+            height=22,
+            corner_radius=5,
+            fg_color=Colors.BORDER,
+            text_color=Colors.MUTED_FG,
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+        )
+        self.arena_config_badge.pack(side="right")
+        self.arena_config_detail = ctk.CTkLabel(
+            self.arena_config_card,
+            text="Đang kiểm tra cài đặt...",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_config_detail.pack(fill="x", padx=10, pady=(0, 4))
+        self.arena_config_rows = ctk.CTkFrame(
+            self.arena_config_card,
+            fg_color="transparent",
+        )
+        self.arena_config_rows.pack(fill="x", padx=10, pady=(0, 2))
+        self.arena_config_note = ctk.CTkLabel(
+            self.arena_config_card,
+            text="",
+            anchor="w",
+            justify="left",
+            wraplength=int(420 / max(0.8, float(config_manager.get("ui_scale") or 1.0))),
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_config_note.pack(fill="x", padx=10, pady=(2, 8))
+        # Compatibility alias for existing callers.
+        self.arena_summary_label = self.arena_config_note
+        self.arena_live_frame = ctk.CTkFrame(
+            body,
+            fg_color=Colors.SECONDARY,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=6,
+        )
+        self.arena_live_frame.pack(fill="x", pady=(8, 0))
+        log_header = ctk.CTkFrame(self.arena_live_frame, fg_color="transparent")
+        log_header.pack(fill="x", padx=8, pady=(7, 4))
+        ctk.CTkLabel(
+            log_header,
+            text="Hoạt động gần đây",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10, "bold"),
+            text_color=Colors.FG,
+        ).pack(side="left")
+        self.arena_live_count_label = ctk.CTkLabel(
+            log_header,
+            text="Chưa có hoạt động",
+            anchor="e",
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            text_color=Colors.MUTED_FG,
+        )
+        self.arena_live_count_label.pack(side="right")
+        self.arena_live_rows = ctk.CTkFrame(
+            self.arena_live_frame,
+            fg_color="transparent",
+        )
+        self.arena_live_rows.pack(fill="x", padx=6, pady=(0, 6))
+        ctk.CTkLabel(
+            self.arena_live_rows,
+            text="Chưa có hoạt động.",
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(fill="x", padx=4, pady=(0, 2))
+
+        for key, combo in self.arena_combos.items():
+            combo.set(
+                self._arena_display_for_id(self._arena_loaded_ids.get(key, 0), key)
+            )
+        self._refresh_arena_validation()
+        self._reload_owned_champions()
+
+    def _reload_owned_champions(self) -> None:
+        """Fetch lại danh sách tướng (dùng cho cả lúc start lẫn nút ⟳)."""
+        self._arena_fetch_gen += 1
+        gen = self._arena_fetch_gen
+        threading.Thread(
+            target=self._load_owned_champions, args=(gen,), daemon=True
+        ).start()
+
+    def _load_owned_champions(self, gen: int) -> None:
+        try:
+            owned = lcu.owned_champions()
+        except Exception:
+            owned = []
+        try:
+            self.after(0, lambda: self._apply_owned_champions(owned, gen))
+        except Exception:
+            pass  # app đang thoát — bỏ qua
+
+    @staticmethod
+    def _normalize_arena_champion_names(value: object) -> Dict[int, str]:
+        """Return cached champion names from config."""
+        if not isinstance(value, dict):
+            return {}
+        names: Dict[int, str] = {}
+        for raw_id, raw_name in value.items():
+            try:
+                cid = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if cid <= 0 or not isinstance(raw_name, str):
+                continue
+            name = raw_name.strip()
+            if name:
+                names[cid] = name
+        return names
+
+    def _refresh_arena_name_maps(self) -> None:
+        """Build lookup maps from saved names plus live client names."""
+        names = dict(self._arena_cached_names)
+        for champion in self._arena_owned:
+            cid = champion_id(champion.get("id"))
+            name = str(champion.get("name") or "").strip()
+            if cid > 0 and name:
+                names[cid] = name
+        self._arena_id_to_display = names
+        self._arena_display_to_id = {name: cid for cid, name in names.items()}
+        self._arena_display_to_id_normalized = {
+            name.casefold(): cid for name, cid in self._arena_display_to_id.items()
+        }
+
+    def _save_arena_champion_names(self) -> None:
+        """Persist champion names so the next app start can show labels offline."""
+        data = {
+            str(cid): name
+            for cid, name in sorted(self._arena_cached_names.items())
+            if cid > 0 and name
+        }
+        if data != config_manager.get("arena_champion_names"):
+            config_manager.set("arena_champion_names", data)
+
+    def _remember_arena_champion(self, champion_id_value: object, name: object) -> None:
+        cid = champion_id(champion_id_value)
+        label = str(name or "").strip()
+        if cid <= 0 or not label:
+            return
+        if label in (NO_PICK_LABEL, NOT_SET_LABEL, "Đang kiểm tra tướng đã lưu"):
+            return
+        if label == "Tướng không còn trong trò chơi":
+            return
+        if self._arena_cached_names.get(cid) == label:
+            return
+        self._arena_cached_names[cid] = label
+        self._refresh_arena_name_maps()
+        self._save_arena_champion_names()
+
+    def _apply_owned_champions(self, owned: List[dict], gen: int) -> None:
+        if gen != self._arena_fetch_gen:
+            return  # kết quả cũ (user đã bấm ⟳ lần nữa) — bỏ qua
+        try:
+            self._arena_owned = sorted(owned, key=lambda c: c["name"].lower())
+            self._arena_roster_known = bool(self._arena_owned)
+            self._arena_owned_ids = {
+                champion_id(champion.get("id"))
+                for champion in self._arena_owned
+                if champion_id(champion.get("id")) > 0
+            }
+            cache_changed = False
+            for champion in self._arena_owned:
+                cid = champion_id(champion.get("id"))
+                name = str(champion.get("name") or "").strip()
+                if cid > 0 and name and self._arena_cached_names.get(cid) != name:
+                    self._arena_cached_names[cid] = name
+                    cache_changed = True
+            self._refresh_arena_name_maps()
+            if cache_changed:
+                self._save_arena_champion_names()
+            for key, combo in self.arena_combos.items():
+                # Values = gợi ý 5 tướng (MRU + A-Z) — không đổ 160+ vào dropdown
+                combo.configure(
+                    values=[
+                        NO_PICK_LABEL if key in OPTIONAL_PICK_FIELDS else NOT_SET_LABEL
+                    ]
+                    + self._recent_names(key, 5)
+                )
+                # Không ghi đè nếu user đã gõ/chọn gì đó trong lúc fetch
+                if not self._arena_field_is_draft(key):
+                    cid = self._arena_loaded_ids.get(key, 0)
+                    combo.set(self._arena_display_for_id(cid, key))
+
+            self._set_arena_client_status(bool(owned), len(owned))
+            self._refresh_arena_validation()
+        except Exception:
+            pass  # app đang thoát — bỏ qua
+
+    def _set_arena_client_status(self, connected: bool, champion_count: int = 0) -> None:
+        if connected:
+            badge_text = "Đã kết nối"
+            badge_color = Colors.GREEN
+            detail = f"Đã tải {champion_count} tướng."
+        else:
+            badge_text = "Chưa kết nối"
+            badge_color = Colors.RED
+            detail = "Mở League of Legends rồi chọn Thử lại."
+        try:
+            self.arena_status_badge.configure(
+                text=badge_text,
+                fg_color=badge_color,
+                text_color=Colors.BG,
+            )
+            self.arena_status_label.configure(
+                text=detail,
+                text_color=Colors.FG if connected else Colors.RED,
+            )
+        except Exception:
+            pass
+
+    def _arena_display_for_id(self, value: object, key: Optional[str] = None) -> str:
+        """Display a saved id using the field's empty-value label."""
+        cid = champion_id(value)
+        if cid == 0:
+            return NO_PICK_LABEL if key in OPTIONAL_PICK_FIELDS else NOT_SET_LABEL
+        name = self._arena_id_to_display.get(cid) or self._arena_cached_names.get(cid)
+        if name:
+            return name
+        if self._arena_roster_known:
+            return "Tướng không còn trong trò chơi"
+        return "Tướng đã lưu"
+
+    def _arena_field_is_draft(self, key: str) -> bool:
+        """Return True when the entry differs from its last committed value."""
+        text = self.arena_combos[key].get().strip()
+        if key in OPTIONAL_PICK_FIELDS and text in ("", NO_PICK_LABEL, NOT_SET_LABEL):
+            return False
+        cid = champion_id(self._arena_loaded_ids.get(key, 0))
+        if cid == 0:
+            return text not in ("", NOT_SET_LABEL)
+        saved_values = {
+            self._arena_display_for_id(cid, key),
+            self._arena_id_to_display.get(cid, ""),
+            self._arena_cached_names.get(cid, ""),
+            f"(ID {cid} — chờ client xác minh)",
+            f"(ID {cid} — không còn trong client)",
+            "Tướng đã lưu",
+        }
+        return text not in saved_values
+
+    def _arena_feature_enabled_for_field(self, key: str) -> bool:
+        """Return whether the feature owning this field is enabled."""
+        if key == "ban":
+            return bool(self.auto_ban_var.get())
+        return bool(self.auto_pick_var.get())
+
+    def _arena_config_issues(self) -> List[ArenaConfigIssue]:
+        owned_ids = None
+        if self._arena_roster_known:
+            owned_ids = self._arena_owned_ids
+        return validate_arena_config(
+            auto_ban_enabled=bool(self.auto_ban_var.get()),
+            auto_pick_enabled=bool(self.auto_pick_var.get()),
+            ban_champion_id=self._arena_loaded_ids.get("ban", 0),
+            pick_chain=[self._arena_loaded_ids.get(key, 0) for key in ("main", "b1", "b2", "b3")],
+            owned_ids=owned_ids,
+        )
+
+    def _arena_draft_issues(self) -> List[ArenaConfigIssue]:
+        issues: List[ArenaConfigIssue] = []
+        for key in self.arena_combos:
+            if (
+                self._arena_feature_enabled_for_field(key)
+                and self._arena_field_is_draft(key)
+            ):
+                issues.append(
+                    ArenaConfigIssue(
+                        "draft",
+                        (key,),
+                        f"{ARENA_FIELD_LABELS[key]} đang nhập nhưng chưa xác nhận.",
+                    )
+                )
+        return issues
+
+    def _arena_issue_text(self, issue: ArenaConfigIssue) -> str:
+        fields = ", ".join(ARENA_FIELD_LABELS[key] for key in issue.fields)
+        if issue.code == "ban_pick_conflict":
+            pick_fields = [
+                ARENA_FIELD_LABELS[key] for key in issue.fields if key != "ban"
+            ]
+            picks = ", ".join(pick_fields) or "tướng chọn"
+            champ = self._arena_display_for_id(self._arena_loaded_ids.get("ban", 0), "ban")
+            if champ in (NOT_SET_LABEL, "Tướng đã lưu", "Tướng không còn trong trò chơi"):
+                champ = "Tướng cần ban"
+            return f"{champ} đang ở cả Tướng cần ban và {picks}. Chọn tướng khác cho một bên."
+        if issue.code == "duplicate_pick":
+            champ = self._arena_display_for_id(
+                self._arena_loaded_ids.get(issue.fields[0], 0), issue.fields[0]
+            )
+            if champ in (NOT_SET_LABEL, "Tướng đã lưu", "Tướng không còn trong trò chơi"):
+                return f"Các ô chọn tướng đang bị trùng: {fields}. Mỗi ô phải là một tướng khác."
+            return f"{champ} đang được chọn ở {fields}. Mỗi ô phải là một tướng khác."
+        messages = {
+            "draft": "Xác nhận tướng đã chọn bằng phím Enter.",
+            "missing_ban": "Chọn tướng cần cấm.",
+            "missing_main": "Chọn tướng chính.",
+            "ban_not_owned": "Tướng cấm không còn trong trò chơi.",
+            "pick_not_owned": "Tướng chọn không còn trong trò chơi.",
+        }
+        message = messages.get(issue.code, issue.message)
+        if issue.code == "draft":
+            return message
+        return f"{fields}: {message}"
+
+    def _arena_field_issue_text(
+        self, key: str, issues: List[ArenaConfigIssue]
+    ) -> str:
+        if any(issue.code in ("missing_ban", "missing_main") for issue in issues):
+            return "Cần chọn tướng này."
+        for issue in issues:
+            if issue.code == "ban_pick_conflict":
+                if key == "ban":
+                    pick_fields = [
+                        ARENA_FIELD_LABELS[field]
+                        for field in issue.fields
+                        if field != "ban"
+                    ]
+                    picks = ", ".join(pick_fields) or "tướng chọn"
+                    return f"Đang trùng với {picks}."
+                return "Đang trùng với tướng cần ban."
+            if issue.code == "duplicate_pick":
+                other_fields = [
+                    ARENA_FIELD_LABELS[field]
+                    for field in issue.fields
+                    if field != key
+                ]
+                others = ", ".join(other_fields) or "ô chọn khác"
+                return f"Đang trùng với {others}."
+            if issue.code in ("ban_not_owned", "pick_not_owned"):
+                return "Tướng này không còn trong trò chơi."
+        return "Kiểm tra lại tướng đã chọn."
+
+    def _arena_summary_value(self, key: str) -> str:
+        combo = self.arena_combos[key]
+        if self._arena_field_is_draft(key):
+            if not self._arena_feature_enabled_for_field(key):
+                return "Chưa chọn"
+            return "Đang xác nhận"
+        return self._arena_display_for_id(
+            self._arena_loaded_ids.get(key, 0), key
+        )
+
+    def _set_arena_field_visual(
+        self, key: str, issues: List[ArenaConfigIssue]
+    ) -> None:
+        combo = self.arena_combos[key]
+        field_issues = [issue for issue in issues if key in issue.fields]
+        draft = self._arena_field_is_draft(key)
+        cid = champion_id(self._arena_loaded_ids.get(key, 0))
+
+        if not self._arena_feature_enabled_for_field(key):
+            border = Colors.BORDER
+            text_color = Colors.MUTED_FG
+            text = "Tính năng này đang tắt."
+            try:
+                combo.configure(border_color=border)
+                self.arena_field_status[key].configure(
+                    text=text,
+                    text_color=text_color,
+                )
+            except Exception:
+                pass
+            return
+
+        if draft:
+            if self._arena_field_error_visible.get(key, False):
+                border = Colors.RED
+                text_color = Colors.RED
+                text = "Chưa xác nhận. Chọn tướng hoặc nhấn Enter."
+            else:
+                border = Colors.BLUE
+                text_color = Colors.BLUE
+                text = "Đang nhập. Nhấn Enter để xác nhận."
+        elif field_issues:
+            is_missing = any(
+                issue.code in ("missing_ban", "missing_main")
+                for issue in field_issues
+            )
+            border = Colors.ORANGE if is_missing else Colors.RED
+            text_color = border
+            text = self._arena_field_issue_text(key, field_issues)
+        elif cid > 0 and self._arena_roster_known and cid not in self._arena_owned_ids:
+            is_active = (
+                (key == "ban" and self.auto_ban_var.get())
+                or (key != "ban" and self.auto_pick_var.get())
+            )
+            border = Colors.RED if is_active else Colors.ORANGE
+            text_color = border
+            text = (
+                "Tướng này không còn trong trò chơi."
+                if is_active
+                else "Tướng đã lưu không còn trong trò chơi."
+            )
+        elif cid > 0:
+            border = Colors.GREEN
+            text_color = Colors.GREEN
+            text = f"Đã chọn: {self._arena_display_for_id(cid, key)}"
+        elif key == "ban" and self.auto_ban_var.get():
+            border = Colors.ORANGE
+            text_color = Colors.ORANGE
+            text = "Cần chọn tướng cần cấm."
+        elif key == "main" and self.auto_pick_var.get():
+            border = Colors.ORANGE
+            text_color = Colors.ORANGE
+            text = "Cần chọn tướng chính."
+        else:
+            border = Colors.BORDER
+            text_color = Colors.MUTED_FG
+            text = "Chưa chọn" if key in ("ban", "main") else "Tùy chọn"
+
+        try:
+            combo.configure(border_color=border)
+            self.arena_field_status[key].configure(
+                text=text,
+                text_color=text_color,
+            )
+        except Exception:
+            pass
+
+    def _refresh_arena_validation(
+        self, force_errors: bool = False
+    ) -> List[ArenaConfigIssue]:
+        """Refresh field states and the user-facing Arena summary."""
+        issues = self._arena_draft_issues() + self._arena_config_issues()
+        if force_errors:
+            for issue in issues:
+                for key in issue.fields:
+                    self._arena_field_error_visible[key] = True
+
+        for key in self.arena_combos:
+            self._set_arena_field_visual(key, issues)
+
+        auto_ban = bool(self.auto_ban_var.get())
+        auto_pick = bool(self.auto_pick_var.get())
+        has_active_saved_ids = any(
+            champion_id(self._arena_loaded_ids.get(key, 0)) > 0
+            for key in self.arena_combos
+            if self._arena_feature_enabled_for_field(key)
+        )
+        if issues:
+            badge_text = "Cần chỉnh sửa"
+            summary_color = Colors.RED
+            detail = "Hoàn thành các mục bên dưới trước khi bắt đầu."
+        elif has_active_saved_ids and not self._arena_roster_known:
+            badge_text = "Đang kiểm tra"
+            summary_color = Colors.ORANGE
+            detail = "Đang chờ trò chơi xác nhận tướng đã lưu."
+        elif not auto_ban and not auto_pick:
+            badge_text = "Chưa bật"
+            summary_color = Colors.MUTED_FG
+            detail = "Bật tự động cấm hoặc chọn tướng để sử dụng."
+        else:
+            badge_text = "Sẵn sàng"
+            summary_color = Colors.GREEN
+            detail = "Cấu hình có thể sử dụng."
+
+        try:
+            self.arena_config_badge.configure(
+                text=badge_text,
+                fg_color=summary_color,
+                text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
+            )
+            self.arena_config_detail.configure(
+                text=detail,
+                text_color=Colors.FG if summary_color == Colors.GREEN else summary_color,
+            )
+            for child in self.arena_config_rows.winfo_children():
+                child.destroy()
+
+            scale = config_manager.get("ui_scale") or 1.0
+            wraplength = int(270 / max(0.8, float(scale)))
+
+            def add_row(label: str, value: str, tag: str, tag_color: str) -> None:
+                row = ctk.CTkFrame(self.arena_config_rows, fg_color="transparent")
+                row.pack(fill="x", pady=(0, 3))
+                ctk.CTkLabel(
+                    row,
+                    text=label,
+                    width=52,
+                    anchor="w",
+                    font=(AppConfig.FONT_FAMILY, 10, "bold"),
+                    text_color=Colors.MUTED_FG,
+                ).pack(side="left")
+                ctk.CTkLabel(
+                    row,
+                    text=tag,
+                    width=72,
+                    height=20,
+                    corner_radius=4,
+                    fg_color=tag_color,
+                    text_color=Colors.BG if tag_color != Colors.BORDER else Colors.MUTED_FG,
+                    font=(AppConfig.FONT_FAMILY, 9, "bold"),
+                ).pack(side="right")
+                ctk.CTkLabel(
+                    row,
+                    text=value,
+                    anchor="w",
+                    justify="left",
+                    wraplength=wraplength,
+                    font=(AppConfig.FONT_FAMILY, 10),
+                    text_color=Colors.FG,
+                ).pack(side="left", fill="x", expand=True, padx=(4, 6))
+
+            add_row(
+                "Cấm",
+                self._arena_summary_value("ban"),
+                "Bật" if auto_ban else "Tắt",
+                Colors.GREEN if auto_ban else Colors.BORDER,
+            )
+            pick_values = " → ".join(
+                self._arena_summary_value(key) for key in ("main", "b1", "b2", "b3")
+            )
+            add_row(
+                "Chọn",
+                pick_values,
+                "Bật" if auto_pick else "Tắt",
+                Colors.GREEN if auto_pick else Colors.BORDER,
+            )
+            add_row(
+                "Bot",
+                "Đang hoạt động" if self._arena_automation_enabled else "Chưa bắt đầu",
+                "Đang chạy" if self._arena_automation_enabled else "Chưa chạy",
+                Colors.BLUE if self._arena_automation_enabled else Colors.BORDER,
+            )
+
+            notes = []
+            if has_active_saved_ids and not self._arena_roster_known:
+                notes.append("Đang chờ trò chơi xác nhận tướng đã lưu.")
+            if issues:
+                notes.append(
+                    "Cần hoàn thành:\n"
+                    + "\n".join(f"• {self._arena_issue_text(issue)}" for issue in issues)
+                )
+            self.arena_config_note.configure(
+                text="\n".join(notes),
+                text_color=summary_color if notes else Colors.MUTED_FG,
+            )
+        except Exception:
+            pass
+        return issues
+
+    def _on_arena_combo_focus_out(self, key: str) -> None:
+        self._commit_empty_optional_picks()
+        self._hide_suggest()
+        self._arena_field_error_visible[key] = True
+        self._refresh_arena_validation()
+
+    def _on_auto_ban_toggle(self) -> None:
+        config_manager.set("auto_ban_enabled", self.auto_ban_var.get())
+        self._refresh_arena_validation()
+
+    def _on_auto_pick_toggle(self) -> None:
+        config_manager.set("auto_pick_enabled", self.auto_pick_var.get())
+        self._refresh_arena_validation()
+
+    def _on_arena_combo(self, key: str) -> None:
+        """User chọn tướng từ dropdown → lưu championId + cập nhật MRU."""
+        combo = self.arena_combos[key]
+        disp = combo.get().strip()
+        if disp == NOT_SET_LABEL or (
+            key in OPTIONAL_PICK_FIELDS and disp in ("", NO_PICK_LABEL)
+        ):
+            cid = 0
+        else:
+            cid = self._arena_display_to_id_normalized.get(disp.casefold())
+            if cid is None:
+                self._arena_field_error_visible[key] = True
+                self._refresh_arena_validation()
+                return  # text gõ tay không khớp tướng nào → không lưu
+        if key == "ban":
+            config_manager.set("arena_ban_champ", cid)
+        else:
+            order = {"main": 0, "b1": 1, "b2": 2, "b3": 3}
+            chain = list(config_manager.get("arena_pick_chain") or [0, 0, 0, 0])
+            while len(chain) < 4:
+                chain.append(0)
+            chain[order[key]] = cid
+            config_manager.set("arena_pick_chain", chain)
+        self._arena_loaded_ids[key] = cid
+        self._arena_field_error_visible[key] = False
+        if cid == 0 and disp in ("", NO_PICK_LABEL, NOT_SET_LABEL):
+            combo.set(NO_PICK_LABEL if key in OPTIONAL_PICK_FIELDS else NOT_SET_LABEL)
+
+        # MRU: tướng vừa chọn đẩy lên đầu (tối đa 5/field) — lần sau gợi ý trước
+        if cid > 0:
+            self._remember_arena_champion(
+                cid,
+                self._arena_id_to_display.get(cid) or disp,
+            )
+            recent = [cid] + [c for c in self._arena_recent.get(key, []) if c != cid]
+            self._arena_recent[key] = recent[:5]
+            config_manager.set("arena_recent", self._arena_recent)
+        # Values = gợi ý 5 mới (không để lại list 25/full)
+        try:
+            combo.configure(
+                values=[
+                    NO_PICK_LABEL if key in OPTIONAL_PICK_FIELDS else NOT_SET_LABEL
+                ]
+                + self._recent_names(key, 5)
+            )
+        except Exception:
+            pass
+        self._refresh_arena_validation()
+
+    def _commit_empty_optional_picks(self) -> None:
+        """Treat empty backup fields as an explicit clear, not an unconfirmed draft."""
+        for key in OPTIONAL_PICK_FIELDS:
+            combo = self.arena_combos[key]
+            text = combo.get().strip()
+            saved_id = champion_id(self._arena_loaded_ids.get(key, 0))
+            if text in ("", NOT_SET_LABEL) or (text == NO_PICK_LABEL and saved_id > 0):
+                self._on_arena_combo(key)
+
+    def _recent_names(self, key: str, limit: int) -> List[str]:
+        """Tên tướng ưu tiên MRU (chọn gần nhất lên đầu) + bù A-Z, tối đa `limit`."""
+        names: List[str] = []
+        seen: set = set()
+        for cid in self._arena_recent.get(key, []):
+            name = self._arena_id_to_display.get(cid)
+            if name and name not in seen:
+                names.append(name)
+                seen.add(name)
+        for champ in self._arena_owned:  # đã sort A-Z trong _apply_owned_champions
+            name = champ["name"]
+            if name not in seen:
+                names.append(name)
+                seen.add(name)
+                if len(names) >= limit:
+                    break
+        return names[:limit]
+
+    # ================= Autocomplete tự chế — gõ đến đâu hiện đến đó =================
+    # CTk dropdown là tk.Menu (post → grab bàn phím → nuốt chữ gõ tiếp).
+    # Thay bằng Toplevel + Listbox KHÔNG grab: entry vẫn gõ, list hiện ngay.
+
+    def _ensure_suggest(self) -> tk.Toplevel:
+        """Tạo (lazy) cửa sổ gợi ý dùng chung cho mọi combo."""
+        win = getattr(self, "_suggest_win", None)
+        if win is not None and win.winfo_exists():
+            return win
+        win = tk.Toplevel(self)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg=Colors.BORDER)
+        lb = tk.Listbox(
+            win,
+            font=(AppConfig.FONT_FAMILY, 11),
+            bg=Colors.SECONDARY,
+            fg=Colors.FG,
+            selectbackground=Colors.BLUE,
+            selectforeground=Colors.BG,
+            highlightthickness=0,
+            borderwidth=1,
+            activestyle="none",
+            exportselection=False,
+        )
+        lb.pack(fill="both", expand=True)
+        lb.bind("<Button-1>", self._suggest_pick)
+        lb.bind("<Motion>", self._suggest_motion)
+        self._suggest_win = win
+        self._suggest_listbox = lb
+        self._suggest_key: Optional[str] = None
+        self._suggest_items: List[str] = []
+        return win
+
+    def _suggest_visible(self) -> bool:
+        win = getattr(self, "_suggest_win", None)
+        return win is not None and win.winfo_exists() and win.state() != "withdrawn"
+
+    def _hide_suggest(self) -> None:
+        win = getattr(self, "_suggest_win", None)
+        if win is not None and win.winfo_exists():
+            win.withdraw()
+        self._suggest_key = None
+
+    def _suggest_index(self) -> int:
+        lb = self._suggest_listbox
+        sel = lb.curselection()
+        return sel[0] if sel else 0
+
+    def _show_suggest(self, key: str, items: List[str], select_index: int = 0) -> None:
+        """Hiện gợi ý ngay dưới ô đang gõ; optional backup đã gồm Không."""
+        try:
+            combo = self.arena_combos[key]
+            if not items:
+                self._hide_suggest()
+                return
+            win = self._ensure_suggest()
+            lb = self._suggest_listbox
+            self._suggest_key = key
+            self._suggest_items = items
+            lb.delete(0, tk.END)
+            for it in items:
+                lb.insert(tk.END, it)
+            idx = max(0, min(select_index, len(items) - 1))
+            lb.selection_clear(0, tk.END)
+            lb.selection_set(idx)
+            lb.activate(idx)
+            lb.see(idx)
+            # Định vị ngay dưới entry của combo
+            x = combo.winfo_rootx()
+            y = combo.winfo_rooty() + combo.winfo_height() + 2
+            width = max(combo.winfo_width(), 190)
+            lb.configure(width=max(22, width // 8))
+            height = min(len(items), 6) * 22 + 6
+            win.geometry(f"{width}x{height}+{x}+{y}")
+            win.deiconify()
+            win.lift()
+        except Exception:
+            pass
+
+    def _update_suggest(self, key: str) -> None:
+        """Lọc theo chữ đang gõ (max 5, ưu tiên MRU) + hiện ngay."""
+        combo = self.arena_combos[key]
+        typed = combo.get().lower().strip()
+        all_names = [c["name"] for c in self._arena_owned]
+        if typed:
+            matches = [n for n in all_names if typed in n.lower()]
+            recent = [n for n in self._recent_names(key, 25) if n in matches]
+            final: List[str] = []
+            for n in recent + matches:
+                if n not in final:
+                    final.append(n)
+                    if len(final) >= 5:
+                        break
+        else:
+            final = self._recent_names(key, 5)
+        if key in OPTIONAL_PICK_FIELDS:
+            final = [NO_PICK_LABEL] + [name for name in final if name != NO_PICK_LABEL]
+            final = final[:5]
+        self._show_suggest(key, final)
+
+    def _on_arena_combo_key(self, key: str, event=None) -> None:
+        """Gõ chữ → gợi ý HIỆN NGAY dưới ô (tối đa 5)."""
+        try:
+            if event is not None and getattr(event, "keysym", "") in {
+                "Up",
+                "Down",
+                "Left",
+                "Right",
+                "Return",
+                "Escape",
+            }:
+                # Navigation key handlers already changed the list selection.
+                # Re-filtering here would reset it to index zero.
+                return
+            self._arena_field_error_visible[key] = False
+            if key in OPTIONAL_PICK_FIELDS and not self.arena_combos[key].get().strip():
+                self._on_arena_combo(key)
+            self._update_suggest(key)
+            self._refresh_arena_validation()
+        except Exception:
+            pass
+
+    def _on_arena_combo_click(self, key: str) -> None:
+        """Click vào ô → chỉ để gõ sửa (gợi ý tự hiện khi gõ ký tự đầu)."""
+        try:
+            self.arena_combos[key]._entry.focus_set()
+        except Exception:
+            pass
+
+    def _suggest_nav(self, key: str, delta: int) -> str:
+        """↑↓ → di chuyển lựa chọn trong list gợi ý."""
+        if not self._suggest_visible():
+            self._update_suggest(key)  # chưa hiện → mở luôn
+            return "break"
+        lb = self._suggest_listbox
+        n = lb.size()
+        if n == 0:
+            return "break"
+        idx = self._suggest_index() + delta
+        idx = max(0, min(n - 1, idx))
+        lb.selection_clear(0, tk.END)
+        lb.selection_set(idx)
+        lb.activate(idx)
+        lb.see(idx)
+        return "break"  # chặn di chuyển cursor trong entry
+
+    def _suggest_enter(self, key: str) -> str:
+        """Enter → chọn mục đang highlight; không có gợi ý → gõ tay đúng tên lưu luôn."""
+        if self._suggest_visible() and self._suggest_items:
+            idx = self._suggest_index()
+            if 0 <= idx < len(self._suggest_items):
+                name = self._suggest_items[idx]
+                self.arena_combos[key].set(name)
+                self._hide_suggest()
+                self._on_arena_combo(key)
+                return "break"
+        self._on_arena_combo_enter(key)
+        return "break"
+
+    def _suggest_escape(self) -> str:
+        self._hide_suggest()
+        return "break"
+
+    def _on_suggest_global_click(self, event) -> None:
+        """Dismiss suggestions after a click outside the active field/list."""
+        if not self._suggest_visible():
+            return
+        widget = getattr(event, "widget", None)
+        if widget is self._suggest_listbox:
+            return
+        key = self._suggest_key
+        combo = self.arena_combos.get(key) if key else None
+        if combo is not None and any(
+            widget is allowed
+            for allowed in (
+                combo,
+                getattr(combo, "_entry", None),
+                getattr(combo, "_canvas", None),
+            )
+        ):
+            return
+        self._hide_suggest()
+
+    def _on_suggest_scroll(self, _event=None) -> None:
+        """Dismiss suggestions when the user scrolls the settings view."""
+        if self._suggest_visible():
+            self._hide_suggest()
+
+    def _suggest_motion(self, event) -> None:
+        """Hover → highlight mục dưới chuột."""
+        try:
+            lb = self._suggest_listbox
+            idx = lb.nearest(event.y)
+            if 0 <= idx < lb.size():
+                lb.selection_clear(0, tk.END)
+                lb.selection_set(idx)
+                lb.activate(idx)
+        except Exception:
+            pass
+
+    def _suggest_pick(self, event=None) -> None:
+        """Click mục → chọn luôn (như chọn từ dropdown)."""
+        key = self._suggest_key
+        if key is None:
+            return
+        try:
+            lb = self._suggest_listbox
+            idx = lb.nearest(event.y) if event is not None else self._suggest_index()
+            if 0 <= idx < len(self._suggest_items):
+                name = self._suggest_items[idx]
+                self.arena_combos[key].set(name)
+                self._hide_suggest()
+                self._on_arena_combo(key)
+        except Exception:
+            pass
+
+    def _on_arena_combo_enter(self, key: str) -> None:
+        """Enter với text gõ tay: khớp tên thật thì lưu như chọn từ dropdown."""
+        try:
+            combo = self.arena_combos[key]
+            disp = combo.get().strip()
+            if (
+                disp == NOT_SET_LABEL
+                or (key in OPTIONAL_PICK_FIELDS and disp in ("", NO_PICK_LABEL))
+                or disp.casefold() in self._arena_display_to_id_normalized
+            ):
+                if disp.casefold() in self._arena_display_to_id_normalized:
+                    combo.set(
+                        self._arena_id_to_display[
+                            self._arena_display_to_id_normalized[disp.casefold()]
+                        ]
+                    )
+                self._on_arena_combo(key)
+            else:
+                self._arena_field_error_visible[key] = True
+                self._refresh_arena_validation()
+        except Exception:
+            pass
+
+    def _on_arena_combo_arrow(self, key: str) -> None:
+        """Bấm mũi tên → danh sách rộng hơn (TỐI ĐA 10 — MRU + A-Z)."""
+        items = self._recent_names(key, 10)
+        if key in OPTIONAL_PICK_FIELDS:
+            items = [NO_PICK_LABEL] + [name for name in items if name != NO_PICK_LABEL]
+            items = items[:10]
+        self._show_suggest(key, items)
+
+    # ================= Toast =================
+
+    def _show_toast(self, text: str, color: str) -> None:
+        """Toast nhỏ góc trên phải, tự biến mất sau 3.5s.
+
+        - WS_EX_NOACTIVATE: không steal focus (user đang gõ app khác)
+        - App minimize → toast vô hình (owned window) → bíp cho nghe thấy
+        """
+        try:
+            if self.state() != "normal":
+                # Toast không hiện khi minimize — bíp thay thế
+                try:
+                    winsound.MessageBeep(winsound.MB_OK)
+                except Exception:
+                    pass
+                return
+            if getattr(self, "_toast_win", None) and self._toast_win.winfo_exists():
+                self._toast_win.destroy()
+            win = tk.Toplevel(self)
+            win.overrideredirect(True)
+            win.attributes("-topmost", True)
+            win.configure(bg=Colors.BG)
+            frame = ctk.CTkFrame(
+                win,
+                fg_color=Colors.SECONDARY,
+                corner_radius=8,
+                border_width=1,
+                border_color=color,
+            )
+            frame.pack(padx=1, pady=1)
+            ctk.CTkLabel(
+                frame,
+                text=text,
+                font=(AppConfig.FONT_FAMILY, 11, "bold"),
+                text_color=color,
+            ).pack(padx=14, pady=8)
+            win.update_idletasks()
+            x = max(0, self.winfo_rootx() + self.winfo_width() - win.winfo_width() - 12)
+            y = self.winfo_rooty() + 8
+            win.geometry(f"+{x}+{y}")
+            # Không cho toast nhận focus/activation (Windows) — user đang gõ
+            # app khác không bị nuốt phím
+            try:
+                import ctypes
+
+                GWL_EXSTYLE = -20
+                WS_EX_NOACTIVATE = 0x08000000
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_NOZORDER = 0x0004
+                SWP_FRAMECHANGED = 0x0020
+                user32 = ctypes.windll.user32
+                hwnd = win.winfo_id()
+                ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE)
+                user32.SetWindowPos(
+                    hwnd, 0, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                )
+            except Exception:
+                pass
+            self._toast_win = win
+            win.after(
+                3500,
+                lambda: win.destroy() if win.winfo_exists() else None,
+            )
+        except Exception:
+            pass  # toast là phụ — hỏng thì bỏ qua, không crash app
+
+    # ================= UI Scale (footer) =================
+
+    def _create_ui_scale_widget(self, parent) -> None:
+        """UI Scale dropdown — đặt ở footer (setting cửa sổ, không phải feature)."""
+        scale_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        scale_frame.pack(side="right")
+
+        ctk.CTkLabel(
+            scale_frame,
+            text="🔍 UI Scale",
+            font=(AppConfig.FONT_FAMILY, 10),
+            text_color=Colors.MUTED_FG,
+        ).pack(side="left", padx=(0, 4))
+
+        scale_options = ["80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%"]
+        current_scale = config_manager.get("ui_scale") or 1.0
+        current_display = f"{int(current_scale * 100)}%"
+        if current_display not in scale_options:
+            current_display = "100%"
+
+        self.scale_dropdown = ctk.CTkOptionMenu(
+            scale_frame,
+            values=scale_options,
+            command=self._on_scale_changed,
+            width=90,
+            height=28,
+            fg_color=Colors.SECONDARY,
+            button_color=Colors.BORDER,
+            button_hover_color=Colors.RING,
+            dropdown_fg_color=Colors.CARD,
+            dropdown_hover_color=Colors.SECONDARY,
+            font=(AppConfig.FONT_FAMILY, 10),
+        )
+        self.scale_dropdown.set(current_display)
+        self.scale_dropdown.pack(side="left")
+
+    def _on_scale_changed(self, choice: str) -> None:
+        """Đổi UI scale → hỏi xác nhận rồi restart."""
+        new_scale = int(choice.replace("%", "")) / 100.0
+        current_scale = config_manager.get("ui_scale") or 1.0
+        if new_scale == current_scale:
+            return
+
+        result = messagebox.askyesno(
+            "Restart Required",
+            f"Changing UI scale to {choice} requires restarting the app.\n\n"
+            "Do you want to restart now?",
+            parent=self,
+        )
+        if result:
+            config_manager.set("ui_scale", new_scale)
+            logger.info(f"UI scale changed to {new_scale}")
+            self._restart_app()
+        else:
+            current_display = f"{int(current_scale * 100)}%"
+            self.scale_dropdown.set(current_display)
+
     def create_widgets(self) -> None:
         # 5. Footer (Pack FIRST with side=bottom to pin it at the very bottom)
         footer = ctk.CTkFrame(self, fg_color="transparent")
@@ -1227,38 +1553,15 @@ class AntiFateApp(ctk.CTk):
             "<Button-1>", lambda e: webbrowser.open("https://x.com/GohansVN")
         )
 
-        # Resolution Badge
-        self.badge_frame = ctk.CTkFrame(
+        # Version badge + UI Scale (thay badge resolution cũ — v2.0 LCU không
+        # phụ thuộc resolution, scale là setting cửa sổ nên để ở footer)
+        ctk.CTkLabel(
             footer,
-            fg_color=Colors.SECONDARY,
-            corner_radius=4,
-            border_width=1,
-            border_color=Colors.BORDER,
-            cursor="hand2",
-        )
-        self.badge_frame.pack(side="right")
-
-        self.badge_label = ctk.CTkLabel(
-            self.badge_frame,
-            text="1080p | 1600x900",
+            text="v2.0",
             font=("JetBrains Mono", 10, "bold"),
             text_color=Colors.MUTED_FG,
-            padx=8,
-            pady=2,
-        )
-        self.badge_label.pack()
-
-        # Add interactions to badge
-        for widget in [self.badge_frame, self.badge_label]:
-            widget.bind(
-                "<Enter>",
-                lambda e: self.badge_frame.configure(border_color=Colors.PRIMARY),
-            )
-            widget.bind(
-                "<Leave>",
-                lambda e: self.badge_frame.configure(border_color=Colors.BORDER),
-            )
-            widget.bind("<Button-1>", lambda e: self.show_info_modal())
+        ).pack(side="right", padx=(0, 8))
+        self._create_ui_scale_widget(footer)
 
         # Main Layout (Pack SECOND with expand=True to fill remaining space)
         # Use scrollable frame for main content
@@ -1280,55 +1583,11 @@ class AntiFateApp(ctk.CTk):
         # Status Label (Secondary)
         self.status_label = ctk.CTkLabel(
             self.status_card,
-            text=UIStatus.READY.upper(),
+            text=UIStatus.READY,
             font=(AppConfig.FONT_FAMILY, 11, "bold"),
             text_color=Colors.MUTED_FG,
         )
         self.status_label.pack(pady=(24, 0))
-
-        # Giant Timer (Hero)
-        self.timer_label = ctk.CTkLabel(
-            self.status_card,
-            text="0 / 0",
-            font=("JetBrains Mono", 64, "bold"),
-            text_color=Colors.PRIMARY,
-        )
-        self.timer_label.pack(pady=(0, 10))
-
-        # Info Button (Top Right)
-        self.info_btn = ctk.CTkButton(
-            self.status_card,
-            text="i",
-            width=20,
-            height=20,
-            corner_radius=10,
-            fg_color="transparent",
-            text_color=Colors.MUTED_FG,
-            hover_color=Colors.SECONDARY,
-            font=(AppConfig.FONT_FAMILY, 12, "italic", "bold"),
-            command=self.show_info_modal,
-        )
-        self.info_btn.place(relx=0.96, rely=0.08, anchor="ne")
-
-        # Settings Button (Top Left) - symmetrical to info button
-        self.settings_btn = ctk.CTkButton(
-            self.status_card,
-            text="⚙️",
-            width=20,
-            height=20,
-            corner_radius=10,
-            fg_color="transparent",
-            text_color=Colors.MUTED_FG,
-            hover_color=Colors.SECONDARY,
-            font=(AppConfig.FONT_FAMILY, 12),
-            command=self.show_settings_modal,
-        )
-        self.settings_btn.place(relx=0.04, rely=0.08, anchor="nw")
-
-        # Hidden overlay icon
-        self.status_icon = ctk.CTkLabel(
-            self.status_card, text="", image=self.icons["gray"]
-        )
 
         # Dynamic Progress Bar
         self.status_progress = ctk.CTkProgressBar(
@@ -1340,123 +1599,12 @@ class AntiFateApp(ctk.CTk):
         self.status_progress.set(0)
         self.status_progress.pack(fill="x", padx=40, pady=(0, 24))
 
-        # Volume Slider Row
-        volume_row = ctk.CTkFrame(main_container, fg_color="transparent")
-        volume_row.pack(fill="x", pady=(0, 10), padx=5)
-
-        self.volume_icon = ctk.CTkLabel(
-            volume_row, text="🔊", font=(AppConfig.FONT_FAMILY, 14)
-        )
-        self.volume_icon.pack(side="left", padx=(0, 10))
-
-        self.volume_slider = ctk.CTkSlider(
-            volume_row,
-            from_=0,
-            to=100,
-            number_of_steps=100,
-            variable=self.sound_volume_var,
-            command=self._on_volume_changed,
-            fg_color=Colors.SECONDARY,
-            progress_color=Colors.BLUE,
-            button_color=Colors.PRIMARY,
-            height=16,
-        )
-        self.volume_slider.pack(side="left", fill="x", expand=True)
-
-        self.volume_label = ctk.CTkLabel(
-            volume_row, text="50%", font=(AppConfig.FONT_FAMILY, 11, "bold"), width=40
-        )
-        self.volume_label.pack(side="left", padx=(5, 5))
-
-        # Sound Test Button
-        self.sound_test_btn = ctk.CTkButton(
-            volume_row,
-            text="▶",
-            width=28,
-            height=28,
-            corner_radius=6,
-            fg_color=Colors.SECONDARY,
-            hover_color=Colors.BORDER,
-            text_color=Colors.FG,
-            font=(AppConfig.FONT_FAMILY, 12),
-            command=self._play_test_sound,
-        )
-        self.sound_test_btn.pack(side="right")
-
-        # Sound Selection Row
-        sound_select_row = ctk.CTkFrame(main_container, fg_color="transparent")
-        sound_select_row.pack(fill="x", pady=(0, 15), padx=5)
-
-        ctk.CTkLabel(
-            sound_select_row,
-            text="🔔",
-            font=(AppConfig.FONT_FAMILY, 14),
-        ).pack(side="left", padx=(0, 10))
-
-        # Build sound options list
-        sound_display_names = [v[0] for v in SOUND_OPTIONS.values()]
-        self.sound_key_map = {v[0]: k for k, v in SOUND_OPTIONS.items()}
-
-        self.sound_option_menu = ctk.CTkOptionMenu(
-            sound_select_row,
-            values=sound_display_names,
-            command=self._on_sound_selected,
-            font=(AppConfig.FONT_FAMILY, 11),
-            fg_color=Colors.SECONDARY,
-            button_color=Colors.BORDER,
-            button_hover_color=Colors.RING,
-            dropdown_fg_color=Colors.CARD,
-            dropdown_hover_color=Colors.SECONDARY,
-            text_color=Colors.FG,
-            dropdown_text_color=Colors.FG,
-            corner_radius=6,
-            height=28,
-        )
-        self.sound_option_menu.pack(side="left", fill="x", expand=True)
-
         # Start animation
         self.animate_heartbeat()
 
         # 2. Settings Card
         settings_card = CardFrame(main_container)
         settings_card.pack(fill="x", pady=(0, 15))
-
-        # Timer Section
-        timer_row = ctk.CTkFrame(settings_card, fg_color="transparent")
-        timer_row.pack(fill="x", padx=15, pady=(15, 10))
-
-        ctk.CTkLabel(
-            timer_row,
-            text="Reset Threshold",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
-            text_color=Colors.FG,
-        ).pack(side="left")
-
-        self.reset_time_entry = ctk.CTkEntry(
-            timer_row,
-            textvariable=self.reset_time_var,
-            width=60,
-            height=28,
-            font=(AppConfig.FONT_FAMILY, 12),
-            fg_color=Colors.SECONDARY,
-            border_color=Colors.BORDER,
-            text_color=Colors.PRIMARY,
-            justify="center",
-            corner_radius=4,
-        )
-        self.reset_time_entry.pack(side="right")
-
-        ctk.CTkLabel(
-            timer_row,
-            text="sec",
-            font=(AppConfig.FONT_FAMILY, 12),
-            text_color=Colors.MUTED_FG,
-        ).pack(side="right", padx=5)
-
-        # Separator
-        ctk.CTkFrame(settings_card, fg_color=Colors.BORDER, height=1).pack(
-            fill="x", padx=15, pady=5
-        )
 
         # Dimmer Control
         dimmer_row = ctk.CTkFrame(settings_card, fg_color="transparent")
@@ -1501,11 +1649,13 @@ class AntiFateApp(ctk.CTk):
         )
         self.dimmer_mode_segment.pack(fill="x")
 
+        # Floor is 50: Windows rejects gamma ramps dimmer than ~50% linear
+        # (SetDeviceGammaRamp heuristics), and curves below 50 look bad.
         self.dimmer_slider = ctk.CTkSlider(
             settings_card,
-            from_=0,
+            from_=50,
             to=100,
-            number_of_steps=100,
+            number_of_steps=50,
             command=self.change_brightness,
             fg_color=Colors.SECONDARY,
             progress_color=Colors.PRIMARY,
@@ -1544,13 +1694,22 @@ class AntiFateApp(ctk.CTk):
         )
         self.auto_dimmer_switch.pack(side="right")
 
-        # 3. Preferences Card
+        # 3. LCU Automation Card
         pref_card = CardFrame(main_container)
         pref_card.pack(fill="x", pady=(0, 15))
 
+        header = ctk.CTkFrame(pref_card, fg_color="transparent")
+        header.pack(fill="x", padx=15, pady=(12, 2))
+        ctk.CTkLabel(
+            header,
+            text="🤖 LCU Automation",
+            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            text_color=Colors.PRIMARY,
+        ).pack(side="left")
+
         # Auto Accept Toggle (NEW)
         accept_row = ctk.CTkFrame(pref_card, fg_color="transparent")
-        accept_row.pack(fill="x", padx=15, pady=(12, 6))
+        accept_row.pack(fill="x", padx=15, pady=(6, 6))
 
         ctk.CTkLabel(
             accept_row,
@@ -1569,55 +1728,6 @@ class AntiFateApp(ctk.CTk):
             fg_color=Colors.SECONDARY,
         )
         self.auto_accept_switch.pack(side="right")
-
-        # Auto Reset Toggle (NEW)
-        reset_toggle_row = ctk.CTkFrame(pref_card, fg_color="transparent")
-        reset_toggle_row.pack(fill="x", padx=15, pady=(6, 6))
-
-        ctk.CTkLabel(
-            reset_toggle_row,
-            text="Auto Reset Queue",
-            font=(AppConfig.FONT_FAMILY, 12),
-            text_color=Colors.FG,
-        ).pack(side="left")
-
-        self.auto_reset_switch = ctk.CTkSwitch(
-            reset_toggle_row,
-            text="",
-            width=40,
-            variable=self.auto_reset_enabled_var,
-            command=self.toggle_auto_reset,
-            progress_color=Colors.GREEN,
-            fg_color=Colors.SECONDARY,
-        )
-        self.auto_reset_switch.pack(side="right")
-
-        # Separator
-        ctk.CTkFrame(pref_card, fg_color=Colors.BORDER, height=1).pack(
-            fill="x", padx=15, pady=6
-        )
-
-        # Sound Toggle
-        sound_row = ctk.CTkFrame(pref_card, fg_color="transparent")
-        sound_row.pack(fill="x", padx=15, pady=(12, 6))
-
-        ctk.CTkLabel(
-            sound_row,
-            text="Sound Notification",
-            font=(AppConfig.FONT_FAMILY, 12),
-            text_color=Colors.FG,
-        ).pack(side="left")
-
-        self.sound_switch = ctk.CTkSwitch(
-            sound_row,
-            text="",
-            width=40,
-            variable=self.reset_sound_enabled_var,
-            command=self.toggle_sound,
-            progress_color=Colors.GREEN,
-            fg_color=Colors.SECONDARY,
-        )
-        self.sound_switch.pack(side="right")
 
         # Startup Toggle
         startup_row = ctk.CTkFrame(pref_card, fg_color="transparent")
@@ -1641,7 +1751,10 @@ class AntiFateApp(ctk.CTk):
         )
         self.startup_switch.pack(side="right")
 
-        # 4. Action Buttons
+        # 4. Arena Card (mọi setting nằm thẳng — không modal)
+        self._create_arena_section(main_container)
+
+        # 5. Action Buttons
         btn_frame = ctk.CTkFrame(main_container, fg_color="transparent")
         btn_frame.pack(fill="x", side="bottom")
 
@@ -1671,21 +1784,6 @@ class AntiFateApp(ctk.CTk):
             command=self.stop_bot,
         )
         self.stop_btn.pack(fill="x", pady=(0, 20))
-
-    def _on_time_changed(self, var, index, mode) -> None:
-        """Auto-save reset time when user types."""
-        val = self.reset_time_var.get()
-        if val.isdigit():
-            config_manager.set("reset_time", int(val))
-            self.update_status(
-                self.status_label.cget("text"), self.current_state_color_name
-            )
-
-    def _on_volume_changed(self, value: float) -> None:
-        """Update volume setting and label."""
-        vol = int(value)
-        self.volume_label.configure(text=f"{vol}%")
-        config_manager.set("sound_volume", vol)
 
     def _on_dimmer_mode_changed(self, mode: str) -> None:
         """Handle dimmer mode switch between Gaming and Browsing."""
@@ -1724,46 +1822,12 @@ class AntiFateApp(ctk.CTk):
             if new_val is None:
                 new_val = 100
 
+        new_val = int(max(50, min(100, int(new_val))))
         self.dimmer_slider.set(float(new_val))
         if self.dimmer_enabled_var.get():
-            self.dimmer.set_brightness(int(new_val))
-        config_manager.set("dimmer_value", int(new_val))
+            self.dimmer.set_brightness(new_val)
+        config_manager.set("dimmer_value", new_val)
         logger.info(f"Dimmer mode switched to: {new_mode} (brightness: {new_val}%)")
-
-    def _play_test_sound(self) -> None:
-        """Play the currently selected notification sound for testing."""
-        import threading
-        import ctypes
-
-        def _play():
-            try:
-                selected_key = config_manager.get("selected_sound") or "notify"
-                if selected_key in SOUND_OPTIONS:
-                    rel_path = SOUND_OPTIONS[selected_key][1]
-                    file_path = os.path.join(RESOURCE_DIR, rel_path)
-                else:
-                    file_path = AppConfig.NOTIFY_SOUND
-
-                volume = config_manager.get("sound_volume") or 50
-
-                # Use Windows MCI for playback
-                mci = ctypes.windll.winmm.mciSendStringW
-                alias = "test_sound"
-                mci(f"close {alias}", None, 0, 0)
-                mci(f'open "{file_path}" type mpegvideo alias {alias}', None, 0, 0)
-                mci(f"setaudio {alias} volume to {int(volume * 10)}", None, 0, 0)
-                mci(f"play {alias} wait", None, 0, 0)
-                mci(f"close {alias}", None, 0, 0)
-            except Exception as e:
-                logger.error(f"Failed to play test sound: {e}")
-
-        threading.Thread(target=_play, daemon=True).start()
-
-    def _on_sound_selected(self, display_name: str) -> None:
-        """Handle sound selection change."""
-        sound_key = self.sound_key_map.get(display_name, "notify")
-        config_manager.set("selected_sound", sound_key)
-        logger.info(f"Sound changed to: {sound_key} ({display_name})")
 
     def switch_to_gaming_mode(self) -> None:
         """Callback to switch to Gaming dimmer mode (called by bot on champ select)."""
@@ -1775,16 +1839,74 @@ class AntiFateApp(ctk.CTk):
         if current_mode != "gaming":
             logger.info("Champ select detected - switching to Gaming dimmer mode")
 
-            # FIX: Save current browsing value BEFORE switching to prevent race condition
-            current_slider_val = int(self.dimmer_slider.get())
+            # FIX (v1.15): save browsing from CONFIG, NOT from the slider.
+            # reset_dimmer() runs first (same bot tick) and queues a visual
+            # slider.set(100) via after(0); by the time this callback reads
+            # the slider the main thread may have applied it, overwriting the
+            # real browsing value with 100 (race - reproduced in logs:
+            # "Saved browsing dimmer value: 100%").
             if current_mode == "browsing":
-                config_manager.set("dimmer_browsing_value", current_slider_val)
-                logger.info(f"Saved browsing dimmer value: {current_slider_val}%")
+                browsing_val = config_manager.get("dimmer_browsing_value")
+                if browsing_val is None:
+                    browsing_val = 100
+                config_manager.set("dimmer_browsing_value", int(browsing_val))
+                logger.info(f"Saved browsing dimmer value: {int(browsing_val)}%")
 
             # Set flag to prevent _on_dimmer_mode_changed from re-saving (would save wrong value)
             self._skip_dimmer_save = True
             self.after(0, lambda: self.dimmer_mode_segment.set("🎮 Gaming"))
             self.after(10, lambda: self._on_dimmer_mode_changed("🎮 Gaming"))
+        else:
+            # FIX (v1.15 review): mode is already gaming - re-apply the
+            # configured gaming value anyway. reset_dimmer() (success
+            # callback of the previous match) set the slider AND the real
+            # brightness to 100; without this re-apply the screen would
+            # stay at 100% from the second match onward (dimmer silently
+            # dead - reproduced in the user's logs).
+            gv = config_manager.get("dimmer_gaming_value")
+            if gv is None:
+                gv = 100
+            gv = int(max(50, min(100, int(gv))))
+            self._dimmer_reset_visual = False
+            self.after(0, lambda: self.dimmer_slider.set(float(gv)))
+            if self.dimmer_enabled_var.get():
+                self.after(0, lambda: self.dimmer.set_brightness(gv))
+            logger.info(
+                f"Champ select detected - re-applying Gaming dimmer "
+                f"(already in gaming mode, {gv}%)"
+            )
+
+    def switch_to_browsing_mode(self) -> None:
+        """Callback từ LCU watcher — hết trận/trở về phòng chờ → Browsing."""
+        if not config_manager.get("auto_dimmer_switch_enabled"):
+            return
+
+        current_mode = config_manager.get("dimmer_mode")
+        if current_mode != "browsing":
+            logger.info("Match ended - switching to Browsing dimmer mode")
+
+            # Lưu gaming value từ CONFIG (không đọc slider — tránh race
+            # với reset_dimmer đang set slider về 100).
+            if current_mode == "gaming":
+                gaming_val = config_manager.get("dimmer_gaming_value")
+                if gaming_val is None:
+                    gaming_val = 100
+                config_manager.set("dimmer_gaming_value", int(gaming_val))
+
+            self._skip_dimmer_save = True
+            self.after(0, lambda: self.dimmer_mode_segment.set("🌐 Browsing"))
+            self.after(10, lambda: self._on_dimmer_mode_changed("🌐 Browsing"))
+        else:
+            # Đã ở browsing — re-apply giá trị (phòng reset_dimmer đã set 100)
+            bv = config_manager.get("dimmer_browsing_value")
+            if bv is None:
+                bv = 100
+            bv = int(max(50, min(100, int(bv))))
+            self._dimmer_reset_visual = False
+            self.after(0, lambda: self.dimmer_slider.set(float(bv)))
+            if self.dimmer_enabled_var.get():
+                self.after(0, lambda: self.dimmer.set_brightness(bv))
+            logger.info(f"Match ended - re-applying Browsing dimmer ({bv}%)")
 
     def _on_window_configure(self, event) -> None:
         """Capture window resize/move with debounce."""
@@ -1800,58 +1922,6 @@ class AntiFateApp(ctk.CTk):
             new_geo = self.geometry()
             config_manager.set("window_geometry", new_geo)
             logger.info(f"Window geometry saved: {new_geo}")
-
-    def _on_focus_out(self, event) -> None:
-        """Handle window losing focus - auto minimize."""
-        # Only process if the event is for the main window
-        if event.widget != self:
-            return
-
-        # Skip if disabled in config
-        if not config_manager.get("minimize_on_focus_loss"):
-            return
-
-        # CRITICAL: Skip if pick mode is active in settings modal
-        if self._settings_modal and hasattr(self._settings_modal, "_pick_mode_active"):
-            if self._settings_modal._pick_mode_active:
-                return
-
-        # Use after() to defer check - prevents race conditions
-        self.after(100, self._check_and_minimize)
-
-    def _check_and_minimize(self) -> None:
-        """Deferred minimize check."""
-        # Re-check pick mode after delay
-        if self._settings_modal and hasattr(self._settings_modal, "_pick_mode_active"):
-            if self._settings_modal._pick_mode_active:
-                return
-
-        # Check if any of our modals now have focus
-        try:
-            focused = self.focus_get()
-            if focused is not None:
-                # Focus returned to our hierarchy
-                return
-        except Exception:
-            pass
-
-        # Check if modals are visible
-        if self._settings_modal and self._settings_modal.winfo_exists():
-            try:
-                if self._settings_modal.winfo_viewable():
-                    return
-            except Exception:
-                pass
-
-        if self._info_modal and self._info_modal.winfo_exists():
-            try:
-                if self._info_modal.winfo_viewable():
-                    return
-            except Exception:
-                pass
-
-        # Safe to minimize
-        self.iconify()
 
     # === Native Scroll Speed ===
 
@@ -1875,6 +1945,7 @@ class AntiFateApp(ctk.CTk):
         canvas = scrollable_frame._parent_canvas
 
         def on_mousewheel(event):
+            self._on_suggest_scroll(event)
             # delta is typically 120 per notch on Windows
             # Scroll by OS-configured number of lines (each line ~20 pixels)
             pixels_per_line = 20
@@ -1902,15 +1973,6 @@ class AntiFateApp(ctk.CTk):
 
     # === UI Scaling ===
 
-    def _apply_scale(self, scale: float) -> None:
-        """Apply new UI scale - requires app restart for clean render."""
-        if scale == self._current_scale:
-            return
-
-        self._current_scale = round(scale, 2)
-        config_manager.set("ui_scale", self._current_scale)
-        logger.info(f"UI scale changed to {self._current_scale}")
-
     def _restart_app(self) -> None:
         """Restart the application to apply UI scale cleanly."""
         import sys
@@ -1919,7 +1981,7 @@ class AntiFateApp(ctk.CTk):
         # Clean up before restart
         if self.bot:
             self.bot.stop()
-        self.dimmer.reset()
+        self.dimmer.close()
 
         # Get the executable path
         if getattr(sys, "frozen", False):
@@ -1929,30 +1991,16 @@ class AntiFateApp(ctk.CTk):
             # Running as script
             exe_path = sys.executable
             script_path = os.path.abspath(sys.argv[0])
-            subprocess.Popen([exe_path, script_path])
+            # --restart: child bỏ qua single-instance mutex (cha chưa thoát
+            # hẳn khi child import — nếu không sẽ chết vì mutex, app biến mất)
+            subprocess.Popen([exe_path, script_path, "--restart"])
             self.destroy()
             return
 
-        subprocess.Popen([exe_path])
+        subprocess.Popen([exe_path, "--restart"])
         self.destroy()
 
     def load_settings(self) -> None:
-        # Load Reset Time
-        saved_time = config_manager.get("reset_time")
-        self.reset_time_var.set(str(saved_time))
-
-        # Load Volume
-        saved_vol = config_manager.get("sound_volume") or 50
-        self.sound_volume_var.set(saved_vol)
-        self.volume_label.configure(text=f"{saved_vol}%")
-
-        # Load Selected Sound
-        saved_sound_key = config_manager.get("selected_sound") or "notify"
-        if saved_sound_key in SOUND_OPTIONS:
-            display_name = SOUND_OPTIONS[saved_sound_key][0]
-            self.sound_option_menu.set(display_name)
-        self.selected_sound_var.set(saved_sound_key)
-
         # Load Dimmer Settings
         dimmer_val = config_manager.get("dimmer_value") or 100
         dimmer_enabled = config_manager.get("dimmer_enabled")
@@ -1972,15 +2020,12 @@ class AntiFateApp(ctk.CTk):
             if dimmer_val is None:
                 dimmer_val = 100
 
-        self.dimmer_slider.set(float(dimmer_val))
+        try:
+            dimmer_val = int(dimmer_val)
+        except (TypeError, ValueError):
+            dimmer_val = 100  # config.json hỏng — fallback an toàn
+        self.dimmer_slider.set(float(max(50, min(100, dimmer_val))))
         self.dimmer_enabled_var.set(dimmer_enabled)
-
-        # Load Sound Settings
-        saved_sound = config_manager.get("reset_sound_enabled")
-        if saved_sound is None:
-            saved_sound = True
-        self.reset_sound_enabled_var.set(saved_sound)
-
         # Load Startup Settings
         saved_startup = config_manager.get("auto_startup_enabled")
         if saved_startup is None:
@@ -1993,19 +2038,9 @@ class AntiFateApp(ctk.CTk):
             saved_auto_accept = True
         self.auto_accept_enabled_var.set(saved_auto_accept)
 
-        # Load Auto Reset Settings
-        saved_auto_reset = config_manager.get("auto_reset_enabled")
-        if saved_auto_reset is None:
-            saved_auto_reset = True
-        self.auto_reset_enabled_var.set(saved_auto_reset)
-
         # Apply settings immediately
         self.toggle_dimmer(save=False)
-
-    def toggle_sound(self) -> None:
-        is_enabled = self.reset_sound_enabled_var.get()
-        config_manager.set("reset_sound_enabled", is_enabled)
-        logger.info(f"Sound alert toggled: {is_enabled}")
+        logger.info(f"Dimmer backend active: {self.dimmer.backend_name}")
 
     def toggle_startup(self) -> None:
         is_enabled = self.auto_startup_enabled_var.get()
@@ -2017,11 +2052,6 @@ class AntiFateApp(ctk.CTk):
         is_enabled = self.auto_accept_enabled_var.get()
         config_manager.set("auto_accept_enabled", is_enabled)
         logger.info(f"Auto Accept Match toggled: {is_enabled}")
-
-    def toggle_auto_reset(self) -> None:
-        is_enabled = self.auto_reset_enabled_var.get()
-        config_manager.set("auto_reset_enabled", is_enabled)
-        logger.info(f"Auto Reset Queue toggled: {is_enabled}")
 
     def _toggle_auto_dimmer_switch(self) -> None:
         """Handle auto dimmer switch toggle (auto-switch to Gaming mode on champ select)."""
@@ -2059,7 +2089,10 @@ class AntiFateApp(ctk.CTk):
         # Only apply if enabled
         if self.dimmer_enabled_var.get():
             self.dimmer.set_brightness(int(value))
-            config_manager.set("dimmer_value", int(value))
+            # Batch config updates into a single file write (slider drags
+            # fire dozens of events per second - one write per event made
+            # the UI janky and hammered the disk).
+            config_manager.set("dimmer_value", int(value), save=False)
 
             # Clear visual reset flag when user actively drags slider
             # This means user is now manually setting brightness
@@ -2068,25 +2101,15 @@ class AntiFateApp(ctk.CTk):
             # Also save to the current mode's specific value
             current_mode = config_manager.get("dimmer_mode") or "browsing"
             if current_mode == "gaming":
-                config_manager.set("dimmer_gaming_value", int(value))
+                config_manager.set("dimmer_gaming_value", int(value), save=False)
             else:
-                config_manager.set("dimmer_browsing_value", int(value))
-
-    def show_info_modal(self) -> None:
-        """Trigger the professional info modal (Singleton pattern)."""
-        if self._info_modal is not None and self._info_modal.winfo_exists():
-            self._info_modal.focus_set()
-            self._info_modal.attributes("-topmost", True)
-            return
-        self._info_modal = InfoModal(self)
-
-    def show_settings_modal(self) -> None:
-        """Trigger the advanced settings modal (Singleton pattern)."""
-        if self._settings_modal is not None and self._settings_modal.winfo_exists():
-            self._settings_modal.focus_set()
-            self._settings_modal.attributes("-topmost", True)
-            return
-        self._settings_modal = SettingsModal(self)
+                config_manager.set("dimmer_browsing_value", int(value), save=False)
+            config_manager.save_config()
+            logger.debug(
+                f"Slider changed to {int(value)}% ({current_mode} mode) - "
+                f"gaming={config_manager.get('dimmer_gaming_value')} "
+                f"browsing={config_manager.get('dimmer_browsing_value')}"
+            )
 
     def animate_heartbeat(self) -> None:
         """Dynamic pulsing animation for the status card."""
@@ -2117,9 +2140,12 @@ class AntiFateApp(ctk.CTk):
         except:
             pass
 
-        self.after(50, self.animate_heartbeat)
+        # 5 Hz tick (was 50ms = 20 Hz): idle CPU saver while keeping the
+        # same visual pace - pulse speeds below are scaled x4 accordingly.
+        self.after(200, self.animate_heartbeat)
 
     def update_status(self, text: str, color: Optional[str] = None) -> None:
+        """Hiển thị status text + màu (bot LCU gửi text tiếng Việt sẵn)."""
         # Map logical colors to constants
         color_map: Dict[str, str] = {
             "green": Colors.STATUS_GREEN,
@@ -2134,72 +2160,261 @@ class AntiFateApp(ctk.CTk):
         self.current_state_color = final_color
         self.current_state_color_name = color_str
 
-        # Adjust animation speed based on state
+        # Adjust animation speed based on state (x4: 5 Hz tick compensates)
         if color_str == "blue":  # Searching
-            self.pulse_speed = 0.04
+            self.pulse_speed = 0.16
         elif color_str == "purple":  # Verifying
-            self.pulse_speed = 0.1
-        elif color_str == "red":  # Resetting/Dodge
-            self.pulse_speed = 0.15
-        elif color_str == "green":  # Match Found / Standby
-            self.pulse_speed = 0.02
+            self.pulse_speed = 0.4
+        elif color_str == "red":  # Error / alert
+            self.pulse_speed = 0.6
+        elif color_str == "green":  # Match found / success
+            self.pulse_speed = 0.08
         else:
-            self.pulse_speed = 0.02
+            self.pulse_speed = 0.08
 
-        # Parse progress and timer if searching
-        progress = 0.0
-        timer_text = "0 / 0"
-        status_text = text.upper()
-        text_lower = text.lower()
+        display_text = self._friendly_status_text(text)
 
-        if "searching" in text_lower:
-            try:
-                # Extract (elapsed/threshold)
-                parts = text.split("(")[1].split(")")[0].split("/")
-                current = int(parts[0])
-                total = int(parts[1])
-                progress = min(1.0, current / total)
-                timer_text = f"{current} / {total}"
-                status_text = "SEARCHING..."
-            except:
-                pass
-        elif "ready" in text_lower:
-            timer_text = "0 / " + str(config_manager.get("reset_time"))
-            status_text = "READY"
-        elif "stopped" in text_lower:
-            timer_text = "OFF"
-            status_text = "STOPPED"
-        elif "verifying" in text_lower:
-            try:
-                # Extract remaining seconds
-                val = text.split("... ")[1].replace("s", "")
-                timer_text = f"FIXING {val}"
-                status_text = "VERIFYING..."
-            except:
-                timer_text = "CONFIRM"
+        # Toast cho sự kiện quan trọng — user biết ngay thành công / lỗi.
+        toast = None
+        if "thất bại" in display_text.lower() or "không đặt được" in display_text.lower():
+            toast = (display_text, Colors.STATUS_RED)
+        elif display_text == UIStatus.CHAMP_SELECT:
+            toast = ("Đã vào màn hình chọn tướng.", Colors.STATUS_GREEN)
+        elif "Trận bị hủy" in display_text:
+            toast = (display_text, Colors.STATUS_ORANGE)
 
-        # Thread-safe update
+        # Thread-safe update — luôn hiển thị câu dành cho người dùng.
         self.after(
             0,
             lambda: [
                 self.status_label.configure(
-                    text=status_text, text_color=Colors.MUTED_FG
+                    text=display_text, text_color=Colors.MUTED_FG
                 ),
-                self.timer_label.configure(text=timer_text, text_color=final_color),
-                self.status_progress.set(progress),
                 self.status_progress.configure(progress_color=final_color),
             ],
         )
+        if toast:
+            self.after(0, lambda: self._show_toast(*toast))
+
+    @staticmethod
+    def _friendly_status_text(text: str) -> str:
+        clean = str(text).strip().lstrip("⚠️").strip()
+        replacements = {
+            "Không kết nối được client LoL": "Chưa kết nối được với League of Legends",
+            "LCU: chưa kết nối được client": "Chưa kết nối được với League of Legends",
+        }
+        if clean.startswith("Error:"):
+            return "Đã xảy ra lỗi. Hãy thử lại."
+        return replacements.get(clean, clean)
+
+    @staticmethod
+    def _arena_log_parts(text: str, color: str) -> Tuple[str, str]:
+        normalized = " ".join(str(text).replace("\n", " ").split())
+        lower = normalized.casefold()
+        color = str(color).lower()
+
+        if lower.startswith("ban:"):
+            if "verified" in lower or "đã được xác minh" in lower:
+                return "Cấm tướng", "Đã chọn tướng cấm."
+            if "retry" in lower or "không được xác minh" in lower:
+                return "Cấm tướng", "Chưa chọn được tướng cấm. Đang thử lại."
+            if "client chưa tạo" in lower or "action chưa mở" in lower:
+                return "Cấm tướng", "Đang chờ đến lượt cấm."
+            if "bị chặn" in lower or "chưa đặt" in lower:
+                return "Cấm tướng", "Chưa chọn tướng cấm."
+            return "Cấm tướng", "Đang xử lý tướng cấm."
+
+        if lower.startswith("pick:"):
+            if "chưa đọc được danh sách" in lower or "danh sách ban chưa" in lower:
+                return "Chọn tướng", "Chưa cập nhật được danh sách tướng bị cấm."
+            if "client chưa tạo" in lower or "action chưa mở" in lower:
+                return "Chọn tướng", "Đang chờ đến lượt chọn tướng."
+            if "verified" in lower or "đã được xác minh" in lower:
+                return "Chọn tướng", "Đã chọn tướng."
+            if "retry" in lower or "không được xác minh" in lower:
+                return "Chọn tướng", "Chưa chọn được tướng. Đang thử lại."
+            if "fail" in lower or "bị chặn" in lower or "dừng" in lower or "chưa đặt" in lower:
+                return "Chọn tướng", "Tự động chọn tướng đã dừng."
+            return "Chọn tướng", "Đang xử lý tướng."
+
+        # Câu chi tiết có tên tướng — watcher đã gửi sẵn tiếng người.
+        if lower.startswith(("đã cấm:", "đang cấm:", "các tướng bị cấm:")):
+            return "Cấm tướng", normalized
+        if lower.startswith(("đã chọn:", "đang chọn:")):
+            return "Chọn tướng", normalized
+        if lower.startswith(("bạn đã tự chọn:", "bạn đã tự cấm:")):
+            return "Chọn tướng", normalized
+        if "bị cấm → chọn:" in lower or "bị lấy → chọn:" in lower or "bị lấy → chuyển" in lower:
+            return "Chọn tướng", normalized
+        if "chưa thành công — thử lại" in lower:
+            if lower.startswith("cấm"):
+                return "Cấm tướng", normalized
+            return "Chọn tướng", normalized
+        if lower.startswith("không cấm được:"):
+            return "Cần chú ý", normalized
+
+        if "champ select mở" in lower:
+            return "Arena", "Đã vào màn hình chọn tướng."
+        if "rời champ select" in lower:
+            if "inprogress" in lower:
+                return "Arena", "Đã vào trận."
+            if "matchmaking" in lower or "lobby" in lower:
+                return "Arena", "Đang tìm trận mới."
+            return "Arena", "Đã rời màn hình chọn tướng."
+        if "chưa kết nối" in lower:
+            return "Kết nối", "Chưa kết nối được với League of Legends."
+        if "đang tìm" in lower:
+            return "Trận", "Đang tìm trận."
+        if "có trận" in lower or "ready-check" in lower:
+            return "Trận", "Có trận mới — đang chờ xác nhận."
+        if "đang chờ champ-select" in lower:
+            return "Arena", "Đang chờ màn hình chọn tướng."
+        if "không phải arena" in lower:
+            return "Arena", "Đây không phải chế độ Arena."
+        if "bạn đã tự chọn tướng" in lower:
+            return "Chọn tướng", "Bạn đã tự chọn — bot dừng."
+        if "bị người khác lấy" in lower:
+            return "Chọn tướng", "Tướng đã chọn bị lấy — đang chọn tướng khác."
+        if "automation" in lower:
+            return "Arena", "Tự động chọn tướng đã dừng."
+        if "bị chặn" in lower:
+            return "Cần chú ý", "Cấu hình chưa sẵn sàng. Kiểm tra lại cài đặt."
+        if color == "red":
+            return "Cần chú ý", "Đã xảy ra lỗi. Kiểm tra lại cài đặt."
+        if color == "orange":
+            return "Đang chờ", "Đang cập nhật thông tin."
+        return "Arena", normalized
+
+    def _render_arena_live(self) -> None:
+        for child in self.arena_live_rows.winfo_children():
+            child.destroy()
+
+        self.arena_live_count_label.configure(
+            text=f"{len(self._arena_live_events)} mục"
+            if self._arena_live_events
+            else "Chưa có hoạt động"
+        )
+        if not self._arena_live_events:
+            ctk.CTkLabel(
+                self.arena_live_rows,
+                text="Chưa có hoạt động.",
+                anchor="w",
+                font=(AppConfig.FONT_FAMILY, 10),
+                text_color=Colors.MUTED_FG,
+            ).pack(fill="x", padx=4, pady=(0, 2))
+            return
+
+        scale = config_manager.get("ui_scale") or 1.0
+        wraplength = int(300 / max(0.8, float(scale)))
+        color_map: Dict[str, str] = {
+            "green": Colors.GREEN,
+            "red": Colors.RED,
+            "blue": Colors.BLUE,
+            "orange": Colors.ORANGE,
+            "gray": Colors.MUTED_FG,
+        }
+        for timestamp, text, logical_color in self._arena_live_events:
+            badge, body = self._arena_log_parts(text, logical_color)
+            event_color = color_map.get(logical_color, Colors.MUTED_FG)
+            body = " ".join(body.split())
+            if len(body) > 96:
+                body = body[:93].rstrip() + "..."
+            row = ctk.CTkFrame(
+                self.arena_live_rows,
+                fg_color=Colors.CARD,
+                corner_radius=4,
+            )
+            row.pack(fill="x", pady=(0, 2))
+            ctk.CTkLabel(
+                row,
+                text=timestamp,
+                width=50,
+                anchor="w",
+                font=(AppConfig.FONT_FAMILY, 9),
+                text_color=Colors.MUTED_FG,
+            ).pack(side="left", padx=(6, 0))
+            ctk.CTkLabel(
+                row,
+                text=badge,
+                width=82,
+                height=20,
+                corner_radius=4,
+                fg_color=event_color,
+                text_color=Colors.BG,
+                font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            ).pack(side="left", padx=(2, 6))
+            ctk.CTkLabel(
+                row,
+                text=body,
+                anchor="w",
+                justify="left",
+                wraplength=wraplength,
+                font=(AppConfig.FONT_FAMILY, 10),
+                text_color=Colors.FG,
+            ).pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+    def update_arena_live(self, text: str, color: str = "gray") -> None:
+        """Render compact Arena events without stealing focus."""
+        logical_color = str(color).lower()
+        timestamp = time.strftime("%H:%M:%S")
+
+        def _update() -> None:
+            try:
+                self._arena_live_events.insert(0, (timestamp, text, logical_color))
+                self._arena_live_events = self._arena_live_events[:7]
+                self._render_arena_live()
+            except Exception:
+                pass  # app đang thoát — bỏ qua callback nền
+
+        try:
+            self.after(0, _update)
+        except Exception:
+            pass
 
     def on_bot_stop(self, status: str, color: str) -> None:
         def _update_ui():
             self.update_status(status, color)
-            self.start_btn.configure(state="normal")
-            self.stop_btn.configure(state="disabled")
-            self.reset_time_entry.configure(state="normal")
             self.bot = None
+            if status == UIStatus.CHAMP_SELECT and self._arena_automation_enabled:
+                # Auto Accept đã xong, nhưng Arena hover-only vẫn cần giữ gate
+                # cho đến khi user bấm STOP.
+                self.start_btn.configure(state="disabled")
+                self.stop_btn.configure(state="normal")
+            else:
+                self._set_arena_automation_enabled(False)
+                self.start_btn.configure(state="normal")
+                self.stop_btn.configure(state="disabled")
 
         self.after(0, _update_ui)
+
+    def _start_dimmer_watchdog(self) -> None:
+        """Periodically verify the dimmer state matches the slider (safety).
+
+        Guards against drift caused by Windows adaptive brightness or a
+        partially failed set. Re-applies the target when it detects a gap.
+        """
+        self._dimmer_watchdog_id = self.after(5000, self._dimmer_watchdog_tick)
+
+    def _dimmer_watchdog_tick(self) -> None:
+        try:
+            if self.dimmer_enabled_var.get():
+                target = int(self.dimmer_slider.get())
+                if not self.dimmer.verify(target):
+                    # Re-apply only after 2 consecutive drifts (~10s): a
+                    # single mismatch can be transient (or a Night Light
+                    # style colour filter) - don't fight it immediately.
+                    self._watchdog_drift_count += 1
+                    if self._watchdog_drift_count >= 2:
+                        logger.info(
+                            f"Dimmer watchdog: display drifted from {target}% - "
+                            f"re-applying ({self.dimmer.backend_name})"
+                        )
+                        self.dimmer.set_brightness(target)
+                else:
+                    self._watchdog_drift_count = 0
+        except Exception as e:
+            logger.error(f"Dimmer watchdog error: {e}")
+        self._start_dimmer_watchdog()
 
     def reset_dimmer(self) -> None:
         """Force reset dimmer to 100% (Success callback).
@@ -2214,19 +2429,39 @@ class AntiFateApp(ctk.CTk):
         self.after(0, lambda: self.dimmer_slider.set(100))
         self.after(0, lambda: self.dimmer.set_brightness(100))
 
+    def _set_arena_automation_enabled(self, enabled: bool) -> None:
+        """Set the master gate for Arena ban/pick actions."""
+        self._arena_automation_enabled = bool(enabled)
+        watcher = getattr(self, "arena_watcher", None)
+        if watcher is not None:
+            watcher.set_automation_enabled(self._arena_automation_enabled)
+        self._refresh_arena_validation()
+
     def start_bot(self) -> None:
         logger.info("Starting bot...")
-        try:
-            new_time = int(self.reset_time_var.get())
-            config_manager.set("reset_time", new_time)
-        except ValueError:
-            messagebox.showerror("Error", "Invalid Reset Time! Must be an integer.")
+
+        self._commit_empty_optional_picks()
+        issues = self._refresh_arena_validation(force_errors=True)
+        if issues:
+            self._set_arena_automation_enabled(False)
+            self._show_toast(
+                "Không thể bắt đầu. Kiểm tra lại Cấu hình Arena.",
+                Colors.STATUS_RED,
+            )
             return
 
-        self.update_status("Status: Running...", "blue")
+        # Guard: never run two bots at once (Stop does not kill the thread
+        # instantly - it may still be winding down).
+        if self.bot and self.bot.is_alive():
+            messagebox.showwarning(
+                "Tác vụ đang dừng",
+                "Tác vụ trước vẫn đang dừng. Hãy chờ một chút rồi thử lại.",
+            )
+            return
+
+        self._set_arena_automation_enabled(True)
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
-        self.reset_time_entry.configure(state="disabled")
 
         self.bot = AntiFateBot(
             update_status_callback=self.update_status,
@@ -2239,6 +2474,7 @@ class AntiFateApp(ctk.CTk):
 
     def stop_bot(self) -> None:
         logger.info("Bot Stopping...")
+        self._set_arena_automation_enabled(False)
         if self.bot:
             self.bot.stop()
         self.stop_btn.configure(state="disabled")
@@ -2247,11 +2483,16 @@ class AntiFateApp(ctk.CTk):
         """Cleanup before closing"""
         logger.info("Closing application...")
         self.is_animating = False
+        if self._dimmer_watchdog_id:
+            self.after_cancel(self._dimmer_watchdog_id)
+            self._dimmer_watchdog_id = None
         try:
+            self._set_arena_automation_enabled(False)
             if self.bot:
                 # Disable callback to avoid updating destroyed widgets
                 self.bot.on_stop_callback = None
                 self.bot.stop()
+            self.arena_watcher.stop()
 
             if self.dimmer:
                 # Reset brightness to 100% before exit
