@@ -86,14 +86,12 @@ class AntiFateApp(ctk.CTk):
         # Window Setup
         self.title(AppConfig.APP_NAME)
 
-        # Animation state
-        self.pulse_val = 0.0
-        self.pulse_dir = 1
-        self.pulse_speed = 0.2  # x4: 5 Hz tick compensates
-        self.current_state_color = Colors.STATUS_GRAY
-        self.current_state_color_name = "gray"
-        self.is_animating = True
+        # Activity beacon state is rendered in the fixed top dock.
         self._geo_save_timer = None
+        self._beacon_color = Colors.MUTED_FG
+        self._beacon_pulse_active = False
+        self._beacon_pulse_visible = True
+        self._beacon_pulse_id = None
 
         # Set Window Icon
         try:
@@ -439,49 +437,46 @@ class AntiFateApp(ctk.CTk):
         ]:
             make_combo_row(body, key, label)
 
-        # Compact final configuration summary. This is separate from the
-        # LCU connection indicator: it shows the exact ban/pick plan.
+        # Compact Arena loadout strip: config state + bot state.
         self.arena_summary_frame = ctk.CTkFrame(
             section,
             fg_color=Colors.SECONDARY,
-            border_color=Colors.BORDER,
-            border_width=1,
             corner_radius=6,
         )
-        self.arena_summary_frame.pack(fill="x", padx=14, pady=(0, 12))
+        self.arena_summary_frame.pack(
+            fill="x",
+            padx=14,
+            pady=(0, 8),
+            before=body,
+        )
 
         summary_header = ctk.CTkFrame(
             self.arena_summary_frame,
             fg_color="transparent",
         )
-        summary_header.pack(fill="x", padx=10, pady=(8, 2))
-        ctk.CTkLabel(
-            summary_header,
-            text="Cấu hình Arena",
-            anchor="w",
-            font=(AppConfig.FONT_FAMILY, 11, "bold"),
-            text_color=Colors.FG,
-        ).pack(side="left")
+        summary_header.pack(fill="x", padx=10, pady=(7, 2))
         self.arena_summary_badge = ctk.CTkLabel(
             summary_header,
             text="Đang kiểm tra",
-            width=100,
+            width=108,
             height=22,
             corner_radius=5,
             fg_color=Colors.BORDER,
             text_color=Colors.MUTED_FG,
             font=(AppConfig.FONT_FAMILY, 9, "bold"),
         )
-        self.arena_summary_badge.pack(side="right")
-
-        self.arena_summary_detail = ctk.CTkLabel(
-            self.arena_summary_frame,
-            text="Đang kiểm tra cài đặt...",
-            anchor="w",
-            font=(AppConfig.FONT_FAMILY, 10),
-            text_color=Colors.MUTED_FG,
+        self.arena_summary_badge.pack(side="left")
+        self.arena_summary_bot_badge = ctk.CTkLabel(
+            summary_header,
+            text="○ Chưa chạy",
+            width=112,
+            height=22,
+            corner_radius=5,
+            fg_color=Colors.BORDER,
+            text_color=Colors.FG,
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
         )
-        self.arena_summary_detail.pack(fill="x", padx=10, pady=(0, 4))
+        self.arena_summary_bot_badge.pack(side="right")
 
         self.arena_summary_rows = ctk.CTkFrame(
             self.arena_summary_frame,
@@ -497,7 +492,7 @@ class AntiFateApp(ctk.CTk):
             font=(AppConfig.FONT_FAMILY, 10),
             text_color=Colors.MUTED_FG,
         )
-        self.arena_summary_note.pack(fill="x", padx=10, pady=(2, 8))
+        self.arena_summary_note.pack(fill="x", padx=10, pady=(2, 7))
 
         for key, combo in self.arena_combos.items():
             combo.set(
@@ -765,6 +760,10 @@ class AntiFateApp(ctk.CTk):
             if not self._arena_feature_enabled_for_field(key):
                 return "Chưa chọn"
             return "Đang xác nhận"
+        if key in OPTIONAL_PICK_FIELDS and champion_id(
+            self._arena_loaded_ids.get(key, 0)
+        ) == 0:
+            return ARENA_FIELD_LABELS[key]
         return self._arena_display_for_id(
             self._arena_loaded_ids.get(key, 0), key
         )
@@ -869,38 +868,31 @@ class AntiFateApp(ctk.CTk):
         if issues:
             badge_text = "Cần chỉnh sửa"
             summary_color = Colors.RED
-            detail = "Hoàn thành các mục bên dưới trước khi bắt đầu."
         elif has_active_saved_ids and not self._arena_roster_known:
             badge_text = "Đang kiểm tra"
             summary_color = Colors.ORANGE
-            detail = "Đang chờ trò chơi xác nhận tướng đã lưu."
         elif not auto_ban and not auto_pick:
             badge_text = "Chưa bật"
             summary_color = Colors.MUTED_FG
-            detail = "Bật tự động cấm hoặc chọn tướng để sử dụng."
         else:
             badge_text = "Sẵn sàng"
             summary_color = Colors.GREEN
-            detail = "Cấu hình có thể sử dụng."
 
         try:
-            # Small footer badge: status only.
-            self._footer_arena_badge.configure(
-                text=badge_text,
-                fg_color=summary_color,
-                text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
-            )
-
-            # Full user-facing summary: exact ban, pick chain, and bot state.
             self.arena_summary_badge.configure(
                 text=badge_text,
                 fg_color=summary_color,
                 text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
             )
-            self.arena_summary_detail.configure(
-                text=detail,
-                text_color=Colors.FG if summary_color == Colors.GREEN else summary_color,
+
+            bot_running = bool(self._arena_automation_enabled)
+            bot_color = Colors.BLUE if bot_running else Colors.BORDER
+            self.arena_summary_bot_badge.configure(
+                text="● Đang chạy" if bot_running else "○ Chưa chạy",
+                fg_color=bot_color,
+                text_color=Colors.BG if bot_running else Colors.FG,
             )
+
             for child in self.arena_summary_rows.winfo_children():
                 child.destroy()
 
@@ -909,11 +901,11 @@ class AntiFateApp(ctk.CTk):
 
             def add_row(label: str, value: str, tag: str, tag_color: str) -> None:
                 row = ctk.CTkFrame(self.arena_summary_rows, fg_color="transparent")
-                row.pack(fill="x", pady=(0, 3))
+                row.pack(fill="x", pady=(0, 2))
                 ctk.CTkLabel(
                     row,
                     text=label,
-                    width=48,
+                    width=72,
                     anchor="w",
                     font=(AppConfig.FONT_FAMILY, 10, "bold"),
                     text_color=Colors.MUTED_FG,
@@ -921,7 +913,7 @@ class AntiFateApp(ctk.CTk):
                 ctk.CTkLabel(
                     row,
                     text=tag,
-                    width=68,
+                    width=52,
                     height=20,
                     corner_radius=4,
                     fg_color=tag_color,
@@ -939,7 +931,7 @@ class AntiFateApp(ctk.CTk):
                 ).pack(side="left", fill="x", expand=True, padx=(4, 6))
 
             add_row(
-                "Cấm",
+                "🛡 CẤM",
                 self._arena_summary_value("ban"),
                 "Bật" if auto_ban else "Tắt",
                 Colors.GREEN if auto_ban else Colors.BORDER,
@@ -948,16 +940,10 @@ class AntiFateApp(ctk.CTk):
                 self._arena_summary_value(key) for key in ("main", "b1", "b2", "b3")
             )
             add_row(
-                "Chọn",
+                "🎯 CHỌN",
                 pick_values,
                 "Bật" if auto_pick else "Tắt",
                 Colors.GREEN if auto_pick else Colors.BORDER,
-            )
-            add_row(
-                "Bot",
-                "Đang hoạt động" if self._arena_automation_enabled else "Chưa bắt đầu",
-                "Đang chạy" if self._arena_automation_enabled else "Chưa chạy",
-                Colors.BLUE if self._arena_automation_enabled else Colors.BORDER,
             )
 
             notes = []
@@ -1486,7 +1472,7 @@ class AntiFateApp(ctk.CTk):
         ).pack(side="right", padx=(0, 8))
         self._create_ui_scale_widget(footer)
 
-        # Compact LCU/Arena status badges (footer — replaces full-width cards)
+        # Compact LCU status badge (footer — click to reload champion names)
         self._footer_lcu_badge = ctk.CTkLabel(
             footer,
             text="LCU: chưa kết nối",
@@ -1499,22 +1485,22 @@ class AntiFateApp(ctk.CTk):
         )
         self._footer_lcu_badge.pack(side="right", padx=(0, 8))
 
-        self._footer_arena_badge = ctk.CTkLabel(
-            footer,
-            text="Chưa bật",
-            width=110,
-            height=22,
-            corner_radius=5,
-            fg_color=Colors.BORDER,
-            text_color=Colors.FG,
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-        )
-        self._footer_arena_badge.pack(side="right", padx=(0, 8))
-
         # Click LCU badge → reload champions
         self._footer_lcu_badge.bind(
             "<Button-1>", lambda e: self._reload_owned_champions()
         )
+
+        # Fixed top dock stays outside the scroll container.
+        self.top_dock = ctk.CTkFrame(
+            self,
+            fg_color=Colors.SECONDARY,
+            border_color=Colors.BORDER,
+            border_width=1,
+            corner_radius=8,
+        )
+        self.top_dock.pack(fill="x", padx=24, pady=(24, 0))
+        self._create_activity_beacon(self.top_dock)
+        self._create_action_buttons(self.top_dock)
 
         # --- Main Layout: 2-column grid ---
         # Left column (65%): Arena champion-select controls
@@ -1525,11 +1511,11 @@ class AntiFateApp(ctk.CTk):
             scrollbar_button_color=Colors.BORDER,
             scrollbar_button_hover_color=Colors.RING,
         )
-        self.main_container.pack(fill="both", expand=True, padx=24, pady=(24, 0))
+        self.main_container.pack(fill="both", expand=True, padx=24, pady=(12, 0))
 
         # --- Main Layout: 2-column grid + full-width bottom row ---
         # grid_row 0: left_column (Arena, 65%) | right_column (Status/Dimmer/LCU, 35%)
-        # grid_row 1: bottom_row (status_card, client/card, live events, START/STOP)
+        # grid_row 1: bottom_row (full-width live events)
         # NOTE: CTkScrollableFrame internally uses pack — grid must be on a
         # CTkFrame wrapper packed into it.
         self._grid_wrapper = ctk.CTkFrame(self.main_container, fg_color="transparent")
@@ -1551,39 +1537,10 @@ class AntiFateApp(ctk.CTk):
         self._create_right_side(self.right_column)
 
         self.bottom_row.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
-        self._grid_wrapper.grid_rowconfigure(1, weight=1)
+        self._grid_wrapper.grid_rowconfigure(0, weight=1)
 
-        # Status Heartbeat Card (always visible at the top of bottom_row)
-        self.status_card = CardFrame(self.bottom_row)
-        self.status_card.pack(fill="x", pady=(0, 12))
-
-        # Status Label (Secondary)
-        self.status_label = ctk.CTkLabel(
-            self.status_card,
-            text=UIStatus.READY,
-            font=(AppConfig.FONT_FAMILY, 11, "bold"),
-            text_color=Colors.MUTED_FG,
-        )
-        self.status_label.pack(pady=(24, 0))
-
-        # Dynamic Progress Bar
-        self.status_progress = ctk.CTkProgressBar(
-            self.status_card,
-            height=2,
-            fg_color=Colors.SECONDARY,
-            progress_color=Colors.BLUE,
-        )
-        self.status_progress.set(0)
-        self.status_progress.pack(fill="x", padx=40, pady=(0, 24))
-
-        # Start animation
-        self.animate_heartbeat()
-
-        # Live Arena events log (full-width, scrollable within main_container)
+        # Live Arena events log (full-width, inside the single scroll area).
         self._create_live_events(self.bottom_row)
-
-        # Action buttons (START/STOP) — full-width, below live events
-        self._create_action_buttons(self.bottom_row)
 
         # Setup scroll speed after all widgets are created
         self._setup_native_scroll_speed(self.main_container)
@@ -1779,10 +1736,70 @@ class AntiFateApp(ctk.CTk):
         )
         self.startup_switch.pack(side="right")
 
+    def _create_activity_beacon(self, parent) -> None:
+        """Create a compact, high-signal runtime status beacon."""
+        self.activity_beacon = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+        self.activity_beacon.pack(fill="x", padx=12, pady=(10, 0))
+
+        self.status_beacon_dot = ctk.CTkLabel(
+            self.activity_beacon,
+            text="●",
+            width=22,
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 16, "bold"),
+            text_color=Colors.MUTED_FG,
+        )
+        self.status_beacon_dot.pack(side="left")
+
+        self.status_label = ctk.CTkLabel(
+            self.activity_beacon,
+            text=UIStatus.READY,
+            anchor="w",
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            text_color=Colors.FG,
+        )
+        self.status_label.pack(side="left", fill="x", expand=True, padx=(4, 8))
+
+        self.status_running_badge = ctk.CTkLabel(
+            self.activity_beacon,
+            text="CHƯA CHẠY",
+            width=104,
+            height=24,
+            corner_radius=5,
+            fg_color=Colors.BORDER,
+            text_color=Colors.FG,
+            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+        )
+        self.status_running_badge.pack(side="right")
+        self._beacon_pulse_id = self.after(600, self._activity_beacon_tick)
+
+    def _activity_beacon_tick(self) -> None:
+        """Pulse only while the bot is actively processing a phase."""
+        try:
+            if self._beacon_pulse_active:
+                self._beacon_pulse_visible = not self._beacon_pulse_visible
+                dot_color = (
+                    self._beacon_color
+                    if self._beacon_pulse_visible
+                    else Colors.BORDER
+                )
+                self.status_beacon_dot.configure(text_color=dot_color)
+            else:
+                self._beacon_pulse_visible = True
+                self.status_beacon_dot.configure(text_color=self._beacon_color)
+        except Exception:
+            return
+        self._beacon_pulse_id = self.after(600, self._activity_beacon_tick)
+
     def _create_action_buttons(self, parent) -> None:
-        """Action buttons (START/STOP) — full-width, below live events."""
+        """Create fixed START/STOP actions outside the scroll container."""
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=(12, 0))
+        btn_frame.pack(fill="x", padx=12, pady=(8, 10))
+        btn_frame.grid_columnconfigure(0, weight=1)
+        btn_frame.grid_columnconfigure(1, weight=1)
 
         self.start_btn = ctk.CTkButton(
             btn_frame,
@@ -1795,7 +1812,7 @@ class AntiFateApp(ctk.CTk):
             corner_radius=8,
             command=self.start_bot,
         )
-        self.start_btn.pack(fill="x", pady=(0, 10))
+        self.start_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
 
         self.stop_btn = ctk.CTkButton(
             btn_frame,
@@ -1809,7 +1826,7 @@ class AntiFateApp(ctk.CTk):
             state="disabled",
             command=self.stop_bot,
         )
-        self.stop_btn.pack(fill="x", pady=(0, 20))
+        self.stop_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
     def _on_dimmer_mode_changed(self, mode: str) -> None:
         """Handle dimmer mode switch between Gaming and Browsing."""
@@ -2137,42 +2154,8 @@ class AntiFateApp(ctk.CTk):
                 f"browsing={config_manager.get('dimmer_browsing_value')}"
             )
 
-    def animate_heartbeat(self) -> None:
-        """Dynamic pulsing animation for the status card."""
-        if not self.is_animating:
-            return
-
-        # Update pulse value
-        self.pulse_val += self.pulse_speed * self.pulse_dir
-        if self.pulse_val >= 1.0:
-            self.pulse_val = 1.0
-            self.pulse_dir = -1
-        elif self.pulse_val <= 0.0:
-            self.pulse_val = 0.0
-            self.pulse_dir = 1
-
-        # Apply pulse to border color and shadow effect
-        alpha = int(25 + (self.pulse_val * 50))  # Range 25-75 for subtle pulse
-
-        # We can't easily do hex alpha in CTk border_color without issues on some platforms,
-        # but we can alternate between the status color and a muted version.
-        try:
-            # Simple pulsing logic: interpolate between status color and BG
-            # For simplicity in this env, we'll just toggle border width or a slightly different color
-            if self.pulse_dir == 1:
-                self.status_card.configure(border_color=self.current_state_color)
-            else:
-                self.status_card.configure(border_color=Colors.BORDER)
-        except:
-            pass
-
-        # 5 Hz tick (was 50ms = 20 Hz): idle CPU saver while keeping the
-        # same visual pace - pulse speeds below are scaled x4 accordingly.
-        self.after(200, self.animate_heartbeat)
-
     def update_status(self, text: str, color: Optional[str] = None) -> None:
-        """Hiển thị status text + màu (bot LCU gửi text tiếng Việt sẵn)."""
-        # Map logical colors to constants
+        """Update the fixed activity beacon with the current bot state."""
         color_map: Dict[str, str] = {
             "green": Colors.STATUS_GREEN,
             "red": Colors.STATUS_RED,
@@ -2183,22 +2166,23 @@ class AntiFateApp(ctk.CTk):
         }
         color_str = str(color).lower()
         final_color = color_map.get(color_str, Colors.STATUS_GRAY)
-        self.current_state_color = final_color
-        self.current_state_color_name = color_str
-
-        # Adjust animation speed based on state (x4: 5 Hz tick compensates)
-        if color_str == "blue":  # Searching
-            self.pulse_speed = 0.16
-        elif color_str == "purple":  # Verifying
-            self.pulse_speed = 0.4
-        elif color_str == "red":  # Error / alert
-            self.pulse_speed = 0.6
-        elif color_str == "green":  # Match found / success
-            self.pulse_speed = 0.08
-        else:
-            self.pulse_speed = 0.08
-
         display_text = self._friendly_status_text(text)
+        if color_str == "red":
+            operation_text = "CẦN CHÚ Ý"
+        elif color_str in {"gray", "none", ""}:
+            operation_text = "CHƯA CHẠY"
+        else:
+            operation_text = "ĐANG CHẠY"
+        operation_color = (
+            Colors.RED
+            if color_str == "red"
+            else Colors.BORDER
+            if color_str in {"gray", "none", ""}
+            else final_color
+        )
+        self._beacon_color = final_color
+        self._beacon_pulse_active = color_str in {"blue", "purple", "orange"}
+        self._beacon_pulse_visible = True
 
         # Toast cho sự kiện quan trọng — user biết ngay thành công / lỗi.
         toast = None
@@ -2209,14 +2193,24 @@ class AntiFateApp(ctk.CTk):
         elif "Trận bị hủy" in display_text:
             toast = (display_text, Colors.STATUS_ORANGE)
 
-        # Thread-safe update — luôn hiển thị câu dành cho người dùng.
+        # Thread-safe update — beacon stays outside the scroll container.
         self.after(
             0,
             lambda: [
+                self.status_beacon_dot.configure(text_color=final_color),
                 self.status_label.configure(
-                    text=display_text, text_color=Colors.MUTED_FG
+                    text=display_text,
+                    text_color=Colors.FG,
                 ),
-                self.status_progress.configure(progress_color=final_color),
+                self.status_running_badge.configure(
+                    text=operation_text,
+                    fg_color=operation_color,
+                    text_color=(
+                        Colors.BG
+                        if operation_color not in (Colors.BORDER, Colors.MUTED_FG)
+                        else Colors.FG
+                    ),
+                ),
             ],
         )
         if toast:
@@ -2508,7 +2502,9 @@ class AntiFateApp(ctk.CTk):
     def on_closing(self) -> None:
         """Cleanup before closing"""
         logger.info("Closing application...")
-        self.is_animating = False
+        if self._beacon_pulse_id:
+            self.after_cancel(self._beacon_pulse_id)
+            self._beacon_pulse_id = None
         if self._dimmer_watchdog_id:
             self.after_cancel(self._dimmer_watchdog_id)
             self._dimmer_watchdog_id = None
