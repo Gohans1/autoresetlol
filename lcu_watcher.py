@@ -557,13 +557,20 @@ class LcuWatcher(threading.Thread):
 
         all_bans = self._all_my_actions(session, "ban")
         for action in all_bans:
-            if action.get("championId", 0) > 0:
-                # User đã tự chọn, hoặc PATCH đã được client giữ lại nhưng
-                # read-after-write không bắt kịp. Không ghi đè.
-                self._arena_event(
-                    f"Ban: action đã có tướng {self._champ_name(action.get('championId', 0))} — không ghi đè",
-                    "gray",
-                )
+            existing_id = action.get("championId", 0)
+            if existing_id > 0:
+                if existing_id == target and self._ban_fail_count > 0:
+                    self._arena_event(
+                        f"Đã cấm: {self._champ_name(target)} — xác minh sau retry",
+                        "green",
+                    )
+                    self._ban_fail_count = 0
+                else:
+                    # User đã tự chọn tướng khác — tôn trọng, không ghi đè.
+                    self._arena_event(
+                        f"Ban: action đã có tướng {self._champ_name(existing_id)} — không ghi đè",
+                        "gray",
+                    )
                 self._ban_handled = True
                 return
 

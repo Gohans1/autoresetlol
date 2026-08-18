@@ -427,7 +427,14 @@ for _ in range(6):
 check("T14e: quá 5 lần fail nhưng chưa kết thúc phase", w._ban_handled is False)
 fake_lcu.session["actions"][0][0]["championId"] = 99
 w._tick()
-check("T14f: action đã có champion → tôn trọng action", w._ban_handled is True)
+check(
+    "T14f: action đã có champion → xác nhận Ban sau retry",
+    w._ban_handled is True
+    and ARENA_EVENTS[-1][0].startswith("Đã cấm:")
+    and "xác minh sau retry" in ARENA_EVENTS[-1][0]
+    and ARENA_EVENTS[-1][1] == "green",
+    str(ARENA_EVENTS[-1]),
+)
 
 # ============ T15: game_mode() trả None → không làm gì, không crash ============
 reset_state()
