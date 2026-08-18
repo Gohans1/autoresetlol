@@ -13,11 +13,15 @@ from typing import Optional
 class FakeLCU:
     phase: Optional[str] = "Lobby"
     ready_state: Optional[str] = None
+    search_active_state: Optional[bool] = False
     accept_ok: bool = True
     accept_calls: int = 0
 
     def gameflow_phase(self):
         return self.phase
+
+    def search_active(self):
+        return self.search_active_state
 
     def ready_check(self):
         if self.ready_state is None:
@@ -61,6 +65,7 @@ def make_bot():
     fake_lcu.accept_calls = 0
     fake_lcu.accept_ok = True
     fake_lcu.ready_state = None
+    fake_lcu.search_active_state = False
     fake_lcu.phase = "Lobby"
     return bot.AntiFateBot(
         update_status_callback=lambda t, c: STATUS_LOG.append((t, c)),
@@ -75,7 +80,18 @@ b = make_bot()
 b.running = True
 b._tick()
 check("T1: không có ready-check → 0 accept", fake_lcu.accept_calls == 0, str(fake_lcu.accept_calls))
-check("T1: đang chờ trận", "tìm trận" in STATUS_LOG[-1][0], str(STATUS_LOG[-1]))
+check(
+    "T1: chưa bấm tìm trận → không báo đang tìm trận",
+    STATUS_LOG[-1][0] == bot.UIStatus.READY,
+    str(STATUS_LOG[-1]),
+)
+
+# ============ T1b: LCU xác nhận đang tìm trận ============
+b = make_bot()
+b.running = True
+fake_lcu.search_active_state = True
+b._tick()
+check("T1b: search.isActive=True → đang tìm trận", STATUS_LOG[-1][0] == bot.UIStatus.SEARCHING, str(STATUS_LOG[-1]))
 
 # ============ T2: có trận → accept → VERIFYING ============
 b = make_bot()
@@ -107,7 +123,7 @@ b.running = True
 fake_lcu.phase = "InProgress"
 b._tick()
 check("T4: in game → bot vẫn chạy", b.running is True)
-check("T4: status trong trận", "Trong trận" in STATUS_LOG[-1][0], str(STATUS_LOG[-1]))
+check("T4: status trong trận", STATUS_LOG[-1][0] == bot.UIStatus.IN_GAME, str(STATUS_LOG[-1]))
 
 # ============ T5: dodge sau grace → quay lại chờ, KHÔNG click gì ============
 b = make_bot()
@@ -157,7 +173,7 @@ b.verify_start_time = time.time() - (bot.AppConfig.VERIFY_TIMEOUT + 5)
 fake_lcu.phase = "EndOfGame"  # phase không khớp dodge (Matchmaking/Lobby) → timeout
 b._tick()
 check("T7: timeout → bot dừng", b.running is False)
-check("T7: status timeout", "Timeout" in STATUS_LOG[-1][0], str(STATUS_LOG[-1]))
+check("T7: stop status lưu đúng", b._stop_status == ("Verify Timeout", "orange"), str(b._stop_status))
 
 # ============ T8: accept fail → báo lỗi, vẫn chờ ============
 b = make_bot()
@@ -183,6 +199,23 @@ b.running = True
 fake_lcu.phase = None
 b._tick()
 check("T10: không kết nối → status đỏ", "kết nối" in STATUS_LOG[-1][0], str(STATUS_LOG[-1]))
+
+# ============ T11: stop callback chỉ phát sau khi worker kết thúc ============
+stop_events = []
+stop_bot = bot.AntiFateBot(
+    update_status_callback=lambda _text, _color: None,
+    on_stop_callback=lambda status, color: stop_events.append((status, color)),
+)
+stop_bot._tick = lambda: setattr(stop_bot, "running", False)
+stop_bot.start()
+stop_bot.join(timeout=2)
+check("T11a: worker đã kết thúc", not stop_bot.is_alive())
+check("T11b: callback dừng đúng 1 lần", len(stop_events) == 1, str(stop_events))
+check(
+    "T11c: callback dừng đúng trạng thái",
+    stop_events == [(bot.UIStatus.STOPPED, "gray")],
+    str(stop_events),
+)
 
 # ============ KẾT LUẬN ============
 print()

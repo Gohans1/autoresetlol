@@ -266,22 +266,31 @@ fake_lcu.session["bans"]["theirTeamBans"] = [3]  # Zed bị ban, main Aatrox cò
 w._tick()
 check("T8b: bans lộ → pick main (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
 
-# ============ T8c: bans summary rỗng nhưng completed ban action có dữ liệu ============
+# ============ T8c: ban action có dữ liệu nhưng summary chưa lộ ============
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
 fake_lcu.session = make_session(
     actions=[
+        [action(5, "pick", in_progress=True)],  # Pick Intent
         [action(10, "ban", completed=False, champion_id=1)],
-        [PICK_ACTION],
+        [action(30, "pick", in_progress=False)],  # Pick thật chưa mở
     ]
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
 check(
-    "T8c: completed ban action → bỏ main, pick fallback (20, 2)",
-    fake_lcu.patches == [(20, 2)],
+    "T8c: Pick Intent → không chọn tạm thời",
+    fake_lcu.patches == [],
+    str(fake_lcu.patches),
+)
+check("T8c2: vẫn chờ phase Pick thật", w._pick_handled is False, str(w._pick_handled))
+fake_lcu.session["actions"][2][0]["isInProgress"] = True
+w._tick()
+check(
+    "T8d: Pick thật, summary rỗng → dùng ban action và chọn fallback (30, 2)",
+    fake_lcu.patches == [(30, 2)],
     str(fake_lcu.patches),
 )
 

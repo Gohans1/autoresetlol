@@ -48,6 +48,14 @@ class FakeClient(LCUClient):
 
 check("T5: LCUClient.game_mode() normalizes CHERRY", FakeClient().game_mode() == "ARENA")
 
+
+class SearchClient(LCUClient):
+    def request(self, method, path, body=None, raise_on_error=False):
+        return {"isActive": path == "/lol-matchmaking/v1/search"}
+
+
+check("T6: search.isActive được đọc đúng", SearchClient().search_active() is True)
+
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} test thất bại: {FAILURES}")
     sys.exit(1)

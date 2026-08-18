@@ -215,12 +215,17 @@ class LcuWatcher(threading.Thread):
             self._pick_wait_logged = False
 
     @staticmethod
+    def _action_is_in_progress(action: object) -> bool:
+        """Return True only when LCU explicitly marks an action active."""
+        return isinstance(action, dict) and action.get("isInProgress") is True
+
+    @staticmethod
     def _my_actions(session: dict, action_type: str) -> list:
         """Action ban/pick CỦA MÌNH, đang in-progress (chưa complete)."""
         return [
             a
             for a in LcuWatcher._all_my_actions(session, action_type)
-            if a.get("isInProgress", True)
+            if LcuWatcher._action_is_in_progress(a)
         ]
 
     @staticmethod
@@ -264,32 +269,77 @@ class LcuWatcher(threading.Thread):
         return False
 
     @staticmethod
-    def _banned_ids(session: dict) -> set:
-        """Collect banned IDs from summary fields and ban actions.
+    def _pick_phase_actions(session: dict) -> list:
+        """Return local pick actions after the local ban action group.
 
-        Arena may keep ``completed`` false for a hover-only ban until the
-        client finalizes the phase. Once a pick action is active, a non-zero
-        ban action is still unavailable and must be filtered out.
+        Arena exposes a Pick Intent group before the Ban group. Flattening all
+        pick actions loses that boundary and can select the intent action.
         """
-        banned: set[int] = set()
-        bans = session.get("bans") if isinstance(session, dict) else None
-        if isinstance(bans, dict):
-            for key in ("myTeamBans", "theirTeamBans"):
-                banned.update(
-                    value
-                    for value in (bans.get(key) or [])
-                    if isinstance(value, int) and not isinstance(value, bool) and value > 0
-                )
-
-        for group in (session.get("actions") or []) if isinstance(session, dict) else []:
+        try:
+            local = session["localPlayerCellId"]
+        except (KeyError, TypeError):
+            return []
+        groups = session.get("actions") or []
+        ban_group_indices = [
+            index
+            for index, group in enumerate(groups)
+            if any(
+                action.get("type") == "ban"
+                and action.get("actorCellId") == local
+                for action in group
+            )
+        ]
+        if not ban_group_indices:
+            return []
+        last_ban_group = max(ban_group_indices)
+        picks = []
+        for group in groups[last_ban_group + 1 :]:
             for action in group:
                 if (
-                    action.get("type") == "ban"
-                    and isinstance(action.get("championId"), int)
-                    and action.get("championId") > 0
+                    action.get("type") == "pick"
+                    and action.get("actorCellId") == local
+                    and not action.get("completed")
                 ):
-                    banned.add(action["championId"])
-        return banned
+                    picks.append(action)
+        return picks
+
+    @staticmethod
+    def _revealed_banned_ids(session: dict) -> tuple[bool, set[int]]:
+        """Return ban IDs after summaries or the real Pick phase is visible."""
+        bans = session.get("bans") if isinstance(session, dict) else None
+        if not isinstance(bans, dict):
+            return False, set()
+        my_bans = bans.get("myTeamBans")
+        their_bans = bans.get("theirTeamBans")
+        if not isinstance(my_bans, list) or not isinstance(their_bans, list):
+            return False, set()
+
+        revealed = {
+            value
+            for value in [*my_bans, *their_bans]
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0
+        }
+        if revealed:
+            return True, revealed
+
+        # Some client builds keep the summary empty but populate the ban
+        # actions before opening the real Pick group. Use that only when a
+        # post-ban local Pick action is explicitly active.
+        ban_action_ids = {
+            action.get("championId")
+            for group in (session.get("actions") or [])
+            for action in group
+            if action.get("type") == "ban"
+            and isinstance(action.get("championId"), int)
+            and action.get("championId") > 0
+        }
+        real_pick_open = any(
+            LcuWatcher._action_is_in_progress(action)
+            for action in LcuWatcher._pick_phase_actions(session)
+        )
+        if ban_action_ids and real_pick_open:
+            return True, ban_action_ids
+        return False, set()
 
     @staticmethod
     def _picked_by_others_ids(session: dict) -> set:
@@ -482,7 +532,7 @@ class LcuWatcher(threading.Thread):
                     "BAN: client chưa tạo action — đang chờ phase ban", "orange"
                 )
             return
-        actions = [a for a in all_bans if a.get("isInProgress", True)]
+        actions = [a for a in all_bans if self._action_is_in_progress(a)]
         if not actions:
             self._arena_event("Ban: action chưa mở — đang chờ phase ban", "orange")
             return  # ban phase chưa mở — chờ, không đánh dấu handled
@@ -509,7 +559,7 @@ class LcuWatcher(threading.Thread):
                 )
                 self._ban_handled = True
                 return
-            if not live.get("isInProgress", True):
+            if not self._action_is_in_progress(live):
                 self._arena_event("Ban: action chưa tới lượt — đang chờ", "orange")
                 return
 
@@ -561,7 +611,7 @@ class LcuWatcher(threading.Thread):
             if self._pick_picked_id > 0:
                 self._pick_watch(session)
             return
-        all_picks = self._all_my_actions(session, "pick")
+        all_picks = self._pick_phase_actions(session)
         if not all_picks:
             if self._has_my_completed_action(session, "pick"):
                 self._arena_event(
@@ -577,7 +627,7 @@ class LcuWatcher(threading.Thread):
                     "orange",
                 )
             return
-        actions = [a for a in all_picks if a.get("isInProgress", True)]
+        actions = [a for a in all_picks if self._action_is_in_progress(a)]
         if not actions:
             self._arena_event("Pick: action chưa mở — đang chờ phase pick", "orange")
             return  # pick phase chưa mở (đang ban phase) — CHỜ, không handled
@@ -594,17 +644,17 @@ class LcuWatcher(threading.Thread):
             self._pick_handled = True
             return
 
-        banned = self._banned_ids(session)
+        bans_revealed, banned = self._revealed_banned_ids(session)
         picked_others = self._picked_by_others_ids(session)
-        if banned:
-            names = ", ".join(self._champ_name(cid) for cid in sorted(banned))
-            self._arena_event(f"Các tướng bị cấm: {names}", "gray")
-        if not banned:
+        if not bans_revealed:
             if time.time() - self._champ_select_since < _BANS_REVEAL_TIMEOUT:
-                # Arena ban ẩn, chưa lộ → chưa thể biết main có bị ban không.
-                self._arena_event("Pick: đang chờ danh sách ban lộ", "orange")
+                # Pick Intent is not the real pick phase. Wait for the client
+                # to reveal the ban summaries after the ban phase.
+                self._arena_event(
+                    "Pick Intent: đang chờ phase ban kết thúc", "orange"
+                )
                 return
-            # Fail closed: an empty ban list after the timeout is unknown data,
+            # Fail closed: an empty or missing ban summary is unknown data,
             # not proof that the configured main champion is available.
             self._arena_event(
                 "Pick: chưa đọc được danh sách tướng bị cấm sau khi chờ — "
@@ -616,6 +666,9 @@ class LcuWatcher(threading.Thread):
                 self._alerted = True
             self._pick_handled = True
             return
+
+        names = ", ".join(self._champ_name(cid) for cid in sorted(banned))
+        self._arena_event(f"Các tướng bị cấm: {names}", "gray")
 
         owned = self._owned_ids()
         unavailable = banned | picked_others | (self._pick_attempted_ids - {0})
@@ -667,7 +720,7 @@ class LcuWatcher(threading.Thread):
             )
             self._pick_handled = True
             return
-        if not live.get("isInProgress", True):
+        if not self._action_is_in_progress(live):
             self._arena_event("Pick: action chưa tới lượt — đang chờ", "orange")
             return
 
@@ -739,9 +792,9 @@ class LcuWatcher(threading.Thread):
     def _pick_watch(self, session: dict) -> None:
         """Mỗi giây kiểm tra tướng bot đã hover còn là của mình không."""
         mine = [
-            a
-            for a in LcuWatcher._all_my_actions(session, "pick")
-            if a.get("isInProgress", True)
+            action
+            for action in self._pick_phase_actions(session)
+            if self._action_is_in_progress(action)
         ]
         if not mine:
             # Action biến mất: chờ đến khi client tạo lại, không tự ý làm gì.

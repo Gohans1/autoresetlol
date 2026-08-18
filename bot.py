@@ -48,24 +48,33 @@ class AntiFateBot(threading.Thread):
         self._champ_select_notified: bool = False
         self.verify_start_time: float = 0.0
         self._error_until: float = 0.0  # giữ status lỗi vài giây, không ghi đè
+        self._stop_status: Optional[tuple[str, str]] = None
+        self._stop_callback_sent = False
 
     # ---- vòng lặp ----
 
     def run(self) -> None:
         self.running = True
-        self.update_status_callback(UIStatus.RUNNING, "blue")
+        self._stop_status = None
+        self._stop_callback_sent = False
+        self.update_status_callback(UIStatus.STARTING, "orange")
         logger.info("Bot LCU started (auto-accept + dodge detect)")
 
-        while self.running:
-            try:
-                self._tick()
-            except Exception as e:
-                logger.error(f"Bot Loop Error: {e}")
-                self.update_status_callback(
-                    "Đã xảy ra lỗi. Hãy thử lại.", "red"
-                )
-                time.sleep(2)
-            time.sleep(1)
+        try:
+            while self.running:
+                try:
+                    self._tick()
+                except Exception as e:
+                    logger.error(f"Bot Loop Error: {e}")
+                    self.update_status_callback(
+                        "Đã xảy ra lỗi. Hãy thử lại.", "red"
+                    )
+                    time.sleep(2)
+                time.sleep(1)
+        finally:
+            self.running = False
+            status, color = self._stop_status or (UIStatus.STOPPED, "gray")
+            self._notify_stop(status, color)
 
     def _tick(self) -> None:
         phase = lcu.gameflow_phase()
@@ -90,7 +99,7 @@ class AntiFateBot(threading.Thread):
             # Giữ auto-accept sống; trận sau có thể xuất hiện sau khi kết thúc
             # game hoặc sau một dodge trong ChampSelect.
             self._leave_champ_select_if_needed(phase)
-            self.update_status_callback("Trong trận — auto-accept đang chờ", "green")
+            self.update_status_callback(UIStatus.IN_GAME, "green")
             return
 
         self._leave_champ_select_if_needed(phase)
@@ -106,8 +115,22 @@ class AntiFateBot(threading.Thread):
 
     def _handle_searching(self, phase: Optional[str]) -> None:
         if time.time() < self._error_until:
-            return  # đang hiển thị lỗi accept — không ghi đè bằng SEARCHING
-        self.update_status_callback(UIStatus.SEARCHING, "blue")
+            return  # giữ status lỗi vài giây, không ghi đè
+
+        search_active = lcu.search_active()
+        if search_active is True:
+            status_text = UIStatus.SEARCHING
+            status_color = "blue"
+        elif search_active is False and phase == "Lobby":
+            status_text = UIStatus.READY
+            status_color = "gray"
+        elif search_active is False:
+            status_text = UIStatus.QUEUEING
+            status_color = "orange"
+        else:
+            status_text = "Đang kiểm tra hàng chờ"
+            status_color = "orange"
+        self.update_status_callback(status_text, status_color)
 
         if not config_manager.get("auto_accept_enabled"):
             return
@@ -147,18 +170,25 @@ class AntiFateBot(threading.Thread):
 
     # ---- kết thúc ----
 
-    def _finish_stop(self, status: str, color: str) -> None:
-        self.running = False
-        self.update_status_callback(status, color)
+    def _notify_stop(self, status: str, color: str) -> None:
+        """Notify the GUI once, after the worker loop has fully exited."""
+        if self._stop_callback_sent:
+            return
+        self._stop_callback_sent = True
         if self.on_stop_callback:
             self.on_stop_callback(status, color)
 
-    def stop(self) -> None:
+    def _finish_stop(self, status: str, color: str) -> None:
+        self._stop_status = (status, color)
         self.running = False
-        if self.on_stop_callback:
-            self.on_stop_callback(UIStatus.STOPPED, "gray")
-        # Chờ loop tắt hẳn — tránh 2 bot chạy song song khi user Start lại
-        # trong vài giây. join 1s đủ: running=False đã set, bot tự thoát sau
-        # ≤1s (request LCU timeout 3s là edge hiếm — không block UI lâu).
+
+    def stop(self) -> None:
+        self._stop_status = (UIStatus.STOPPED, "gray")
+        self.running = False
+        # The worker owns the final callback. This prevents a stale tick from
+        # updating the UI after STOP and keeps START locked until exit.
         if self.is_alive():
             self.join(timeout=1)
+        if not self.is_alive():
+            status, color = self._stop_status or (UIStatus.STOPPED, "gray")
+            self._notify_stop(status, color)

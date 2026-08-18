@@ -108,6 +108,8 @@ class AntiFateApp(ctk.CTk):
             logger.error(f"Could not set window icon: {e}")
 
         self.bot: Optional[AntiFateBot] = None
+        self._bot_generation = 0
+        self._bot_stopping = False
         self._arena_automation_enabled = False
         self._arena_live_events: List[Tuple[str, str, str]] = []
         self.dimmer = DimmerController()
@@ -413,29 +415,41 @@ class AntiFateApp(ctk.CTk):
             except Exception as e:
                 logger.warning(f"Combo bind failed ({key}): {e}")
 
-        # --- Ban: toggle + combo tướng cần ban (cùng khu) ---
-        ctk.CTkSwitch(
+        # --- Ban: toggle + nhóm field có thể thu gọn ---
+        self.auto_ban_switch = ctk.CTkSwitch(
             body,
             text="Auto ban tướng",
             variable=self.auto_ban_var,
             command=self._on_auto_ban_toggle,
-        ).pack(anchor="w", pady=(0, 2))
-        make_combo_row(body, "ban", "Tướng cần ban")
+        )
+        self.auto_ban_switch.pack(anchor="w", pady=(0, 2))
+        self.arena_ban_fields_frame = ctk.CTkFrame(
+            body,
+            fg_color="transparent",
+        )
+        self.arena_ban_fields_frame.pack(fill="x", pady=(0, 2))
+        make_combo_row(self.arena_ban_fields_frame, "ban", "Tướng cần ban")
 
-        # --- Pick: toggle + chuỗi chính → dự bị (cùng khu) ---
-        ctk.CTkSwitch(
+        # --- Pick: toggle + nhóm field có thể thu gọn ---
+        self.auto_pick_switch = ctk.CTkSwitch(
             body,
             text="Auto chọn tướng (main → dự bị, không khóa)",
             variable=self.auto_pick_var,
             command=self._on_auto_pick_toggle,
-        ).pack(anchor="w", pady=(10, 2))
+        )
+        self.auto_pick_switch.pack(anchor="w", pady=(10, 2))
+        self.arena_pick_fields_frame = ctk.CTkFrame(
+            body,
+            fg_color="transparent",
+        )
+        self.arena_pick_fields_frame.pack(fill="x")
         for key, label in [
             ("main", "Tướng chính"),
             ("b1", "Dự bị 1"),
             ("b2", "Dự bị 2"),
             ("b3", "Dự bị 3"),
         ]:
-            make_combo_row(body, key, label)
+            make_combo_row(self.arena_pick_fields_frame, key, label)
 
         # Compact Arena loadout strip: config state + bot state.
         self.arena_summary_frame = ctk.CTkFrame(
@@ -466,17 +480,6 @@ class AntiFateApp(ctk.CTk):
             font=(AppConfig.FONT_FAMILY, 9, "bold"),
         )
         self.arena_summary_badge.pack(side="left")
-        self.arena_summary_bot_badge = ctk.CTkLabel(
-            summary_header,
-            text="○ Chưa chạy",
-            width=112,
-            height=22,
-            corner_radius=5,
-            fg_color=Colors.BORDER,
-            text_color=Colors.FG,
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-        )
-        self.arena_summary_bot_badge.pack(side="right")
 
         self.arena_summary_rows = ctk.CTkFrame(
             self.arena_summary_frame,
@@ -498,6 +501,7 @@ class AntiFateApp(ctk.CTk):
             combo.set(
                 self._arena_display_for_id(self._arena_loaded_ids.get(key, 0), key)
             )
+        self._refresh_arena_field_visibility()
         self._refresh_arena_validation()
         self._reload_owned_champions()
 
@@ -885,14 +889,6 @@ class AntiFateApp(ctk.CTk):
                 text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
             )
 
-            bot_running = bool(self._arena_automation_enabled)
-            bot_color = Colors.BLUE if bot_running else Colors.BORDER
-            self.arena_summary_bot_badge.configure(
-                text="● Đang chạy" if bot_running else "○ Chưa chạy",
-                fg_color=bot_color,
-                text_color=Colors.BG if bot_running else Colors.FG,
-            )
-
             for child in self.arena_summary_rows.winfo_children():
                 child.destroy()
 
@@ -968,12 +964,30 @@ class AntiFateApp(ctk.CTk):
         self._arena_field_error_visible[key] = True
         self._refresh_arena_validation()
 
+    def _refresh_arena_field_visibility(self) -> None:
+        """Hide inactive config groups without clearing their saved values."""
+        if self.auto_ban_var.get():
+            self.arena_ban_fields_frame.pack(
+                fill="x",
+                pady=(0, 2),
+                before=self.auto_pick_switch,
+            )
+        else:
+            self.arena_ban_fields_frame.pack_forget()
+
+        if self.auto_pick_var.get():
+            self.arena_pick_fields_frame.pack(fill="x")
+        else:
+            self.arena_pick_fields_frame.pack_forget()
+
     def _on_auto_ban_toggle(self) -> None:
         config_manager.set("auto_ban_enabled", self.auto_ban_var.get())
+        self._refresh_arena_field_visibility()
         self._refresh_arena_validation()
 
     def _on_auto_pick_toggle(self) -> None:
         config_manager.set("auto_pick_enabled", self.auto_pick_var.get())
+        self._refresh_arena_field_visibility()
         self._refresh_arena_validation()
 
     def _on_arena_combo(self, key: str) -> None:
@@ -1762,18 +1776,6 @@ class AntiFateApp(ctk.CTk):
             text_color=Colors.FG,
         )
         self.status_label.pack(side="left", fill="x", expand=True, padx=(4, 8))
-
-        self.status_running_badge = ctk.CTkLabel(
-            self.activity_beacon,
-            text="CHƯA CHẠY",
-            width=104,
-            height=24,
-            corner_radius=5,
-            fg_color=Colors.BORDER,
-            text_color=Colors.FG,
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
-        )
-        self.status_running_badge.pack(side="right")
         self._beacon_pulse_id = self.after(600, self._activity_beacon_tick)
 
     def _activity_beacon_tick(self) -> None:
@@ -2154,8 +2156,26 @@ class AntiFateApp(ctk.CTk):
                 f"browsing={config_manager.get('dimmer_browsing_value')}"
             )
 
-    def update_status(self, text: str, color: Optional[str] = None) -> None:
+    def _status_update_allowed(
+        self, generation: Optional[int], allow_stopping: bool = False
+    ) -> bool:
+        if generation is None:
+            return True
+        if generation != self._bot_generation:
+            return False
+        return allow_stopping or not self._bot_stopping
+
+    def update_status(
+        self,
+        text: str,
+        color: Optional[str] = None,
+        generation: Optional[int] = None,
+        allow_stopping: bool = False,
+    ) -> None:
         """Update the fixed activity beacon with the current bot state."""
+        if not self._status_update_allowed(generation, allow_stopping):
+            return
+
         color_map: Dict[str, str] = {
             "green": Colors.STATUS_GREEN,
             "red": Colors.STATUS_RED,
@@ -2167,19 +2187,6 @@ class AntiFateApp(ctk.CTk):
         color_str = str(color).lower()
         final_color = color_map.get(color_str, Colors.STATUS_GRAY)
         display_text = self._friendly_status_text(text)
-        if color_str == "red":
-            operation_text = "CẦN CHÚ Ý"
-        elif color_str in {"gray", "none", ""}:
-            operation_text = "CHƯA CHẠY"
-        else:
-            operation_text = "ĐANG CHẠY"
-        operation_color = (
-            Colors.RED
-            if color_str == "red"
-            else Colors.BORDER
-            if color_str in {"gray", "none", ""}
-            else final_color
-        )
         self._beacon_color = final_color
         self._beacon_pulse_active = color_str in {"blue", "purple", "orange"}
         self._beacon_pulse_visible = True
@@ -2193,28 +2200,27 @@ class AntiFateApp(ctk.CTk):
         elif "Trận bị hủy" in display_text:
             toast = (display_text, Colors.STATUS_ORANGE)
 
-        # Thread-safe update — beacon stays outside the scroll container.
-        self.after(
-            0,
-            lambda: [
-                self.status_beacon_dot.configure(text_color=final_color),
+        def _render() -> None:
+            if not self._status_update_allowed(generation, allow_stopping):
+                return
+            try:
+                self.status_beacon_dot.configure(text_color=final_color)
                 self.status_label.configure(
                     text=display_text,
                     text_color=Colors.FG,
-                ),
-                self.status_running_badge.configure(
-                    text=operation_text,
-                    fg_color=operation_color,
-                    text_color=(
-                        Colors.BG
-                        if operation_color not in (Colors.BORDER, Colors.MUTED_FG)
-                        else Colors.FG
-                    ),
-                ),
-            ],
-        )
+                )
+            except Exception:
+                pass
+
+        # Thread-safe update — beacon stays outside the scroll container.
+        self.after(0, _render)
         if toast:
-            self.after(0, lambda: self._show_toast(*toast))
+            self.after(
+                0,
+                lambda: self._show_toast(*toast)
+                if self._status_update_allowed(generation, allow_stopping)
+                else None,
+            )
 
     @staticmethod
     def _friendly_status_text(text: str) -> str:
@@ -2391,9 +2397,33 @@ class AntiFateApp(ctk.CTk):
         except Exception:
             pass
 
-    def on_bot_stop(self, status: str, color: str) -> None:
+    def _on_bot_status(self, generation: int, text: str, color: str) -> None:
+        """Accept status only from the current, non-stopping bot thread."""
+        if generation != self._bot_generation or self._bot_stopping:
+            return
+        self.update_status(text, color, generation=generation)
+
+    def _on_bot_success(self, generation: int) -> None:
+        if generation == self._bot_generation and not self._bot_stopping:
+            self.reset_dimmer()
+
+    def _on_bot_champ_select(self, generation: int) -> None:
+        if generation == self._bot_generation and not self._bot_stopping:
+            self.switch_to_gaming_mode()
+
+    def on_bot_stop(
+        self, status: str, color: str, generation: Optional[int] = None
+    ) -> None:
         def _update_ui():
-            self.update_status(status, color)
+            if generation is not None and generation != self._bot_generation:
+                return
+            self.update_status(
+                status,
+                color,
+                generation=generation,
+                allow_stopping=True,
+            )
+            self._bot_stopping = False
             self.bot = None
             if status == UIStatus.CHAMP_SELECT and self._arena_automation_enabled:
                 # Auto Accept đã xong, nhưng Arena hover-only vẫn cần giữ gate
@@ -2480,24 +2510,36 @@ class AntiFateApp(ctk.CTk):
             return
 
         self._set_arena_automation_enabled(True)
+        self._bot_generation += 1
+        generation = self._bot_generation
+        self._bot_stopping = False
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
 
         self.bot = AntiFateBot(
-            update_status_callback=self.update_status,
-            on_stop_callback=self.on_bot_stop,
-            on_success_callback=self.reset_dimmer,
-            on_champ_select_callback=self.switch_to_gaming_mode,
+            update_status_callback=lambda text, color, g=generation: self._on_bot_status(
+                g, text, color
+            ),
+            on_stop_callback=lambda status, color, g=generation: self.on_bot_stop(
+                status, color, g
+            ),
+            on_success_callback=lambda g=generation: self._on_bot_success(g),
+            on_champ_select_callback=lambda g=generation: self._on_bot_champ_select(g),
         )
-        if self.bot:
-            self.bot.start()
+        self.bot.start()
 
     def stop_bot(self) -> None:
         logger.info("Bot Stopping...")
+        self._bot_stopping = True
         self._set_arena_automation_enabled(False)
+        self.start_btn.configure(state="disabled")
+        self.stop_btn.configure(state="disabled")
+        self.update_status("Đang dừng...", "orange")
         if self.bot:
             self.bot.stop()
-        self.stop_btn.configure(state="disabled")
+        else:
+            self._bot_stopping = False
+            self.update_status(UIStatus.STOPPED, "gray")
 
     def on_closing(self) -> None:
         """Cleanup before closing"""
@@ -2509,6 +2551,7 @@ class AntiFateApp(ctk.CTk):
             self.after_cancel(self._dimmer_watchdog_id)
             self._dimmer_watchdog_id = None
         try:
+            self._bot_stopping = True
             self._set_arena_automation_enabled(False)
             if self.bot:
                 # Disable callback to avoid updating destroyed widgets

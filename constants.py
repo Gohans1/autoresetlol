@@ -89,12 +89,15 @@ class DefaultConfig:
 
 
 class UIStatus:
-    READY = "Sẵn sàng"
+    READY = "Sẵn sàng — chưa vào hàng"
+    STARTING = "Đang kiểm tra client"
     RUNNING = "Đang hoạt động"
+    QUEUEING = "Đang vào hàng"
     STOPPED = "Đã dừng"
     SEARCHING = "Đang tìm trận"
     MATCH_FOUND = "Có trận mới — đang chờ xác nhận"
     ACCEPTED = "Đã nhận trận — đang vào chọn tướng"
     VERIFYING = "Đang vào trận — còn {} giây"
-    CHAMP_SELECT = "Đang chọn tướng"
-    DODGED = "Trận bị hủy — đang tìm trận mới"
+    CHAMP_SELECT = "Đang vào chọn tướng"
+    IN_GAME = "Đang trong trận"
+    DODGED = "Trận bị hủy — đang vào hàng lại"

@@ -203,6 +203,13 @@ class LCUClient:
         v = self.request("GET", "/lol-gameflow/v1/gameflow-phase")
         return v if isinstance(v, str) else None
 
+    def search_active(self) -> Optional[bool]:
+        """Return whether the client is actively searching for a match."""
+        value = self.request("GET", "/lol-matchmaking/v1/search")
+        if not isinstance(value, dict) or not isinstance(value.get("isActive"), bool):
+            return None
+        return value["isActive"]
+
     def ready_check(self) -> Optional[Dict[str, Any]]:
         """Trạng thái ready check hiện tại: {"state": "InProgress"|...}."""
         v = self.request("GET", "/lol-matchmaking/v1/ready-check")
