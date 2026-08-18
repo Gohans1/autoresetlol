@@ -258,20 +258,30 @@ class LCUClient:
         except LCUError:
             return False
 
-    def owned_champions(self) -> List[Dict[str, Any]]:
-        """Danh sách tướng đã sở hữu: [{id, name, alias}]. Rỗng nếu lỗi."""
-        v = self.request("GET", "/lol-champions/v1/owned-champions-minimal")
-        if not isinstance(v, list):
-            return []
+    def owned_champions_result(self) -> Optional[List[Dict[str, Any]]]:
+        """Return the roster, or None when the roster request failed."""
+        value = self.request("GET", "/lol-champions/v1/owned-champions-minimal")
+        if not isinstance(value, list):
+            return None
         out: List[Dict[str, Any]] = []
-        for c in v:
-            if not isinstance(c, dict):
+        for champion in value:
+            if not isinstance(champion, dict):
                 continue
-            cid = c.get("id")
-            name = c.get("name")
+            cid = champion.get("id")
+            name = champion.get("name")
             if isinstance(cid, int) and isinstance(name, str) and name:
-                out.append({"id": cid, "name": name, "alias": str(c.get("alias") or "")})
+                out.append(
+                    {
+                        "id": cid,
+                        "name": name,
+                        "alias": str(champion.get("alias") or ""),
+                    }
+                )
         return out
+
+    def owned_champions(self) -> List[Dict[str, Any]]:
+        """Danh sách tướng đã sở hữu; rỗng nếu request lỗi."""
+        return self.owned_champions_result() or []
 
 
 # Singleton dùng chung cho toàn app

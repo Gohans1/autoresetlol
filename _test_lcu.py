@@ -56,6 +56,19 @@ class SearchClient(LCUClient):
 
 check("T6: search.isActive được đọc đúng", SearchClient().search_active() is True)
 
+
+class RosterResultClient(LCUClient):
+    def __init__(self, value):
+        super().__init__()
+        self.value = value
+
+    def request(self, method, path, body=None, raise_on_error=False):
+        return self.value
+
+
+check("T7: roster request lỗi → None", RosterResultClient(None).owned_champions_result() is None)
+check("T8: roster response rỗng hợp lệ → []", RosterResultClient([]).owned_champions_result() == [])
+
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} test thất bại: {FAILURES}")
     sys.exit(1)

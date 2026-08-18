@@ -3,6 +3,7 @@ import sys
 from typing import Any
 
 from arena_config import NO_PICK_LABEL, NOT_SET_LABEL, validate_arena_config
+import gui
 from gui import AntiFateApp
 
 
@@ -137,6 +138,14 @@ class FakeSuggestCombo:
     def __init__(self):
         self._entry = object()
         self._canvas = object()
+
+
+class FakeDimmer:
+    def __init__(self):
+        self.calls = []
+
+    def set_brightness(self, value):
+        self.calls.append(value)
 
 
 class FakeEvent:
@@ -303,6 +312,22 @@ check("T12b: click trong vùng hợp lệ không đóng", hidden == [], str(hidd
 # ============ T13: scroll dismisses suggestion ============
 AntiFateApp._on_suggest_scroll(app, FakeEvent(outside_widget))
 check("T13: scroll đóng suggestion", hidden == ["hide"], str(hidden))
+
+# ============ T14: auto dimmer OFF blocks bot success reset ============
+app = AntiFateApp.__new__(AntiFateApp)
+app.dimmer_enabled_var = FakeVar(True)
+app.dimmer = FakeDimmer()
+original_get = gui.config_manager.get
+gui.config_manager.get = lambda key: (
+    False if key == "auto_dimmer_switch_enabled" else original_get(key)
+)
+AntiFateApp.reset_dimmer(app)
+check(
+    "T14: auto dimmer OFF không ghi brightness",
+    app.dimmer.calls == [],
+    str(app.dimmer.calls),
+)
+gui.config_manager.get = original_get
 
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} test thất bại: {FAILURES}")

@@ -152,6 +152,7 @@ class AntiFateApp(ctk.CTk):
             on_gaming_callback=self.switch_to_gaming_mode,
             on_browsing_callback=self.switch_to_browsing_mode,
             arena_event_callback=self.update_arena_live,
+            connection_callback=self._on_arena_connection_changed,
         )
         self.arena_watcher.start()
 
@@ -294,7 +295,10 @@ class AntiFateApp(ctk.CTk):
 
         # Comboboxes tướng
         self._arena_owned: List[dict] = []
+        self._arena_client_connected = False
         self._arena_roster_known = False
+        self._arena_roster_loading = True
+        self._arena_roster_error = False
         self._arena_display_to_id: Dict[str, int] = {}
         self._arena_display_to_id_normalized: Dict[str, int] = {}
         self._arena_id_to_display: Dict[int, str] = {}
@@ -471,7 +475,7 @@ class AntiFateApp(ctk.CTk):
         summary_header.pack(fill="x", padx=10, pady=(7, 2))
         self.arena_summary_badge = ctk.CTkLabel(
             summary_header,
-            text="Đang kiểm tra",
+            text="Đang tải",
             width=108,
             height=22,
             corner_radius=5,
@@ -506,20 +510,38 @@ class AntiFateApp(ctk.CTk):
         self._reload_owned_champions()
 
     def _reload_owned_champions(self) -> None:
-        """Fetch lại danh sách tướng (dùng cho cả lúc start lẫn nút ⟳)."""
+        """Fetch lại roster; connection và roster result được theo dõi riêng."""
         self._arena_fetch_gen += 1
         gen = self._arena_fetch_gen
+        self._arena_roster_loading = True
+        self._arena_roster_error = False
+        try:
+            self._refresh_arena_validation()
+        except Exception:
+            pass
         threading.Thread(
             target=self._load_owned_champions, args=(gen,), daemon=True
         ).start()
 
     def _load_owned_champions(self, gen: int) -> None:
         try:
-            owned = lcu.owned_champions()
+            phase = lcu.gameflow_phase()
         except Exception:
-            owned = []
+            phase = None
         try:
-            self.after(0, lambda: self._apply_owned_champions(owned, gen))
+            roster = lcu.owned_champions_result()
+        except Exception:
+            roster = None
+        connected = phase is not None or roster is not None
+        owned = roster or []
+        roster_loaded = roster is not None
+        try:
+            self.after(
+                0,
+                lambda: self._apply_owned_champions(
+                    owned, gen, connected, roster_loaded
+                ),
+            )
         except Exception:
             pass  # app đang thoát — bỏ qua
 
@@ -580,12 +602,21 @@ class AntiFateApp(ctk.CTk):
         self._refresh_arena_name_maps()
         self._save_arena_champion_names()
 
-    def _apply_owned_champions(self, owned: List[dict], gen: int) -> None:
+    def _apply_owned_champions(
+        self,
+        owned: List[dict],
+        gen: int,
+        connected: bool,
+        roster_loaded: bool,
+    ) -> None:
         if gen != self._arena_fetch_gen:
             return  # kết quả cũ (user đã bấm ⟳ lần nữa) — bỏ qua
         try:
+            self._arena_client_connected = connected
+            self._arena_roster_known = roster_loaded
+            self._arena_roster_loading = False
+            self._arena_roster_error = not roster_loaded
             self._arena_owned = sorted(owned, key=lambda c: c["name"].lower())
-            self._arena_roster_known = bool(self._arena_owned)
             self._arena_owned_ids = {
                 champion_id(champion.get("id"))
                 for champion in self._arena_owned
@@ -614,15 +645,39 @@ class AntiFateApp(ctk.CTk):
                     cid = self._arena_loaded_ids.get(key, 0)
                     combo.set(self._arena_display_for_id(cid, key))
 
-            self._set_arena_client_status(bool(owned), len(owned))
+            self._set_arena_client_status(self._arena_client_connected)
             self._refresh_arena_validation()
         except Exception:
             pass  # app đang thoát — bỏ qua
 
-    def _set_arena_client_status(self, connected: bool, champion_count: int = 0) -> None:
-        """Update the compact footer LCU badge (replaces full-width client card)."""
+    def _on_arena_connection_changed(self, connected: bool) -> None:
+        """Keep LCU badge current even when the client starts after the app."""
+        def _update() -> None:
+            try:
+                self._arena_client_connected = bool(connected)
+                if not connected and not self._arena_roster_known:
+                    self._arena_roster_loading = False
+                    self._arena_roster_error = False
+                self._set_arena_client_status(self._arena_client_connected)
+                self._refresh_arena_validation()
+                if (
+                    connected
+                    and not self._arena_roster_known
+                    and not self._arena_roster_loading
+                ):
+                    self._reload_owned_champions()
+            except Exception:
+                pass
+
+        try:
+            self.after(0, _update)
+        except Exception:
+            pass
+
+    def _set_arena_client_status(self, connected: bool) -> None:
+        """Show LCU connection; roster loading is a separate state."""
         if connected:
-            badge_text = f"LCU: {champion_count} tướng"
+            badge_text = "LCU: đã kết nối"
             badge_color = Colors.GREEN
         else:
             badge_text = "LCU: chưa kết nối"
@@ -872,8 +927,14 @@ class AntiFateApp(ctk.CTk):
         if issues:
             badge_text = "Cần chỉnh sửa"
             summary_color = Colors.RED
-        elif has_active_saved_ids and not self._arena_roster_known:
-            badge_text = "Đang kiểm tra"
+        elif has_active_saved_ids and not self._arena_client_connected:
+            badge_text = "Chờ LCU"
+            summary_color = Colors.ORANGE
+        elif has_active_saved_ids and self._arena_roster_loading:
+            badge_text = "Đang tải"
+            summary_color = Colors.ORANGE
+        elif has_active_saved_ids and self._arena_roster_error:
+            badge_text = "Chưa xác minh"
             summary_color = Colors.ORANGE
         elif not auto_ban and not auto_pick:
             badge_text = "Chưa bật"
@@ -943,8 +1004,13 @@ class AntiFateApp(ctk.CTk):
             )
 
             notes = []
-            if has_active_saved_ids and not self._arena_roster_known:
-                notes.append("Đang chờ trò chơi xác nhận tướng đã lưu.")
+            if has_active_saved_ids:
+                if not self._arena_client_connected:
+                    notes.append("Chưa kết nối League of Legends để xác minh tướng đã lưu.")
+                elif self._arena_roster_loading:
+                    notes.append("Đang tải danh sách tướng từ League of Legends.")
+                elif self._arena_roster_error:
+                    notes.append("Chưa tải được danh sách tướng. Bấm badge LCU để thử lại.")
             if issues:
                 notes.append(
                     "Cần hoàn thành:\n"
@@ -1874,10 +1940,15 @@ class AntiFateApp(ctk.CTk):
         config_manager.set("dimmer_value", new_val)
         logger.info(f"Dimmer mode switched to: {new_mode} (brightness: {new_val}%)")
 
+    def _automatic_dimmer_allowed(self) -> bool:
+        """Single gate for every automatic dimmer write."""
+        return bool(config_manager.get("auto_dimmer_switch_enabled")) and bool(
+            self.dimmer_enabled_var.get()
+        )
+
     def switch_to_gaming_mode(self) -> None:
         """Callback to switch to Gaming dimmer mode (called by bot on champ select)."""
-        # Check if auto dimmer switch is enabled
-        if not config_manager.get("auto_dimmer_switch_enabled"):
+        if not self._automatic_dimmer_allowed():
             return
 
         current_mode = config_manager.get("dimmer_mode")
@@ -1923,7 +1994,7 @@ class AntiFateApp(ctk.CTk):
 
     def switch_to_browsing_mode(self) -> None:
         """Callback từ LCU watcher — hết trận/trở về phòng chờ → Browsing."""
-        if not config_manager.get("auto_dimmer_switch_enabled"):
+        if not self._automatic_dimmer_allowed():
             return
 
         current_mode = config_manager.get("dimmer_mode")
@@ -2473,6 +2544,8 @@ class AntiFateApp(ctk.CTk):
         are NOT overwritten. This prevents browsing/gaming values from being
         lost when mode switches after a reset.
         """
+        if not self._automatic_dimmer_allowed():
+            return
         logger.info("Bot success confirmed. Resetting dimmer to 100% (visual only).")
         # Set flag to prevent _on_dimmer_mode_changed from saving this fake 100 value
         self._dimmer_reset_visual = True

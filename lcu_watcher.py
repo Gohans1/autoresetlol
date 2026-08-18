@@ -51,12 +51,15 @@ class LcuWatcher(threading.Thread):
         on_gaming_callback=None,
         on_browsing_callback=None,
         arena_event_callback=None,
+        connection_callback=None,
     ):
         super().__init__(daemon=True)
         self.update_status_callback = update_status_callback
         self.on_gaming_callback = on_gaming_callback
         self.on_browsing_callback = on_browsing_callback
         self.arena_event_callback = arena_event_callback
+        self.connection_callback = connection_callback
+        self._last_connection_state: Optional[bool] = None
         self.running: bool = False
         # START BOT controls Arena ban/pick. Dimmer monitoring remains active.
         self.automation_enabled: bool = False
@@ -114,6 +117,14 @@ class LcuWatcher(threading.Thread):
 
     def _tick(self) -> None:
         phase = lcu.gameflow_phase()
+        connected = phase is not None
+        if connected != self._last_connection_state:
+            self._last_connection_state = connected
+            if self.connection_callback:
+                try:
+                    self.connection_callback(connected)
+                except Exception as e:
+                    logger.error(f"LCU connection callback failed: {e}")
 
         if phase is None:
             self._arena_event("LCU: chưa kết nối được client", "red")
@@ -177,6 +188,8 @@ class LcuWatcher(threading.Thread):
     def _auto_dimmer(self, phase: Optional[str]) -> None:
         """Chuyển dimmer Gaming/Browsing theo phase (nếu toggle bật)."""
         if not config_manager.get("auto_dimmer_switch_enabled"):
+            return
+        if config_manager.get("dimmer_enabled") is False:
             return
         in_game = phase in ("ChampSelect", "InProgress")
         if in_game and not self._gaming_state:
