@@ -1546,24 +1546,31 @@ class AntiFateApp(ctk.CTk):
         self.main_container.grid_columnconfigure(0, weight=65)
         self.main_container.grid_columnconfigure(1, weight=35)
 
-        # --- Layout: 2-column grid + full-width bottom row ---
+        # --- Main Layout: 2-column grid + full-width bottom row ---
         # grid_row 0: left_column (Arena, 65%) | right_column (Status/Dimmer/LCU, 35%)
         # grid_row 1: bottom_row (status_card, client/card, live events, START/STOP)
-        self.bottom_row = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        # NOTE: CTkScrollableFrame internally uses pack — grid must be on a
+        # CTkFrame wrapper packed into it.
+        self._grid_wrapper = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self._grid_wrapper.pack(fill="both", expand=True)
+        self._grid_wrapper.grid_columnconfigure(0, weight=65)
+        self._grid_wrapper.grid_columnconfigure(1, weight=35)
+
+        self.bottom_row = ctk.CTkFrame(self._grid_wrapper, fg_color="transparent")
 
         # Left column — Arena (rộng hơn)
-        self.left_column = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.left_column = ctk.CTkFrame(self._grid_wrapper, fg_color="transparent")
         self.left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
 
         # Right column — Status, Settings, LCU, Actions
-        self.right_column = ctk.CTkFrame(self.main_container, fg_color="transparent")
+        self.right_column = ctk.CTkFrame(self._grid_wrapper, fg_color="transparent")
         self.right_column.grid(row=0, column=1, sticky="nsew")
 
         self._create_arena_section(self.left_column)
         self._create_right_side(self.right_column)
 
         self.bottom_row.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
-        self.main_container.grid_rowconfigure(1, weight=1)
+        self._grid_wrapper.grid_rowconfigure(1, weight=1)
 
         # Status Heartbeat Card (always visible at the top of bottom_row)
         self.status_card = CardFrame(self.bottom_row)
