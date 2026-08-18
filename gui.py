@@ -54,8 +54,13 @@ class CardFrame(ctk.CTkFrame):
 class AntiFateApp(ctk.CTk):
     def __init__(self):
         # Apply UI scaling BEFORE super().__init__() for clean initialization
-        saved_scale = config_manager.get("ui_scale") or 1.0
-        saved_scale = max(0.8, min(1.5, float(saved_scale)))  # Clamp to valid range
+        # Default to 1.25x (~16px effective) for readability; user can change
+        # via footer dropdown (persisted to config).
+        saved_scale = config_manager.get("ui_scale")
+        if saved_scale is None:
+            saved_scale = 1.25
+            config_manager.set("ui_scale", saved_scale)
+        saved_scale = max(0.8, min(2.0, float(saved_scale)))  # Wider range for 16px+
         ctk.set_widget_scaling(saved_scale)
         ctk.set_window_scaling(saved_scale)
 
@@ -436,7 +441,7 @@ class AntiFateApp(ctk.CTk):
 
         # Client status + retry (client có thể mở sau khi app start).
         self.arena_client_card = ctk.CTkFrame(
-            body,
+            self.bottom_row,
             fg_color=Colors.CARD,
             border_color=Colors.BORDER,
             border_width=1,
@@ -487,9 +492,8 @@ class AntiFateApp(ctk.CTk):
             command=self._reload_owned_champions,
         ).pack(side="right", padx=(6, 0))
 
-        # Configuration summary shown as a user-facing status card.
         self.arena_config_card = ctk.CTkFrame(
-            body,
+            self.bottom_row,
             fg_color=Colors.CARD,
             border_color=Colors.BORDER,
             border_width=1,
@@ -1440,11 +1444,14 @@ class AntiFateApp(ctk.CTk):
             text_color=Colors.MUTED_FG,
         ).pack(side="left", padx=(0, 4))
 
-        scale_options = ["80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%"]
-        current_scale = config_manager.get("ui_scale") or 1.0
+        scale_options = ["80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%", "160%", "175%", "200%"]
+        current_scale = config_manager.get("ui_scale")
+        if current_scale is None:
+            current_scale = 1.25
+        current_scale = max(0.8, min(2.0, float(current_scale)))
         current_display = f"{int(current_scale * 100)}%"
         if current_display not in scale_options:
-            current_display = "100%"
+            current_display = "125%"
 
         self.scale_dropdown = ctk.CTkOptionMenu(
             scale_frame,
@@ -1539,24 +1546,26 @@ class AntiFateApp(ctk.CTk):
         self.main_container.grid_columnconfigure(0, weight=65)
         self.main_container.grid_columnconfigure(1, weight=35)
 
+        # --- Layout: 2-column grid + full-width bottom row ---
+        # grid_row 0: left_column (Arena, 65%) | right_column (Status/Dimmer/LCU, 35%)
+        # grid_row 1: bottom_row (status_card, client/card, live events, START/STOP)
+        self.bottom_row = ctk.CTkFrame(self.main_container, fg_color="transparent")
+
         # Left column — Arena (rộng hơn)
         self.left_column = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.left_column.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-        self._create_arena_section(self.left_column)
 
         # Right column — Status, Settings, LCU, Actions
         self.right_column = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.right_column.grid(row=0, column=1, sticky="nsew")
+
+        self._create_arena_section(self.left_column)
         self._create_right_side(self.right_column)
 
-        # --- Bottom: Live Arena events (full-width, below the two columns) ---
-        # Wrapped in a frame inside main_container so a single scrollbar
-        # covers both columns AND the live events log below.
-        self.bottom_row = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.bottom_row.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
         self.main_container.grid_rowconfigure(1, weight=1)
 
-        # Status Heartbeat Card (bottom row — always visible, no scroll needed)
+        # Status Heartbeat Card (always visible at the top of bottom_row)
         self.status_card = CardFrame(self.bottom_row)
         self.status_card.pack(fill="x", pady=(0, 12))
 
@@ -1582,8 +1591,11 @@ class AntiFateApp(ctk.CTk):
         # Start animation
         self.animate_heartbeat()
 
-        # --- Bottom: Live Arena events (full-width, below the two columns) ---
+        # Live Arena events log (full-width, scrollable within main_container)
         self._create_live_events(self.bottom_row)
+
+        # Action buttons (START/STOP) — full-width, below live events
+        self._create_action_buttons(self.bottom_row)
 
         # Setup scroll speed after all widgets are created
         self._setup_native_scroll_speed(self.main_container)
@@ -1779,9 +1791,10 @@ class AntiFateApp(ctk.CTk):
         )
         self.startup_switch.pack(side="right")
 
-        # --- Action Buttons ---
+    def _create_action_buttons(self, parent) -> None:
+        """Action buttons (START/STOP) — full-width, below live events."""
         btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.pack(fill="x", side="bottom")
+        btn_frame.pack(fill="x", pady=(12, 0))
 
         self.start_btn = ctk.CTkButton(
             btn_frame,
