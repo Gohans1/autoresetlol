@@ -221,6 +221,19 @@ fake_config["auto_ban_enabled"] = True
 w._tick()
 check("T5: ban đã complete → không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
 
+# ============ T5b: completed action không có champion → chưa user đã ban ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", completed=True, champion_id=0)], [PICK_ACTION]]
+)
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 99
+w._tick()
+check("T5b: completed champion=0 → chưa đánh dấu ban", w._ban_handled is False)
+check("T5b: completed champion=0 → không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
+
 # ============ T6: pick — main bị ban → dự bị ============
 reset_state()
 w = make_watcher()
@@ -363,7 +376,9 @@ check("T13: bỏ tướng không sở hữu → pick (20, 1)", fake_lcu.patches 
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]])
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [action(20, "pick", in_progress=False)]]
+)
 fake_config["auto_ban_enabled"] = True
 fake_config["arena_ban_champ"] = 99
 fake_lcu.patch_ok = False
@@ -377,7 +392,9 @@ check("T14b: ban tick sau thành công (10, 99)", fake_lcu.patches == [(10, 99)]
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]])
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [action(20, "pick", in_progress=False)]]
+)
 fake_config["auto_ban_enabled"] = True
 fake_config["arena_ban_champ"] = 99
 fake_lcu.apply_patch_to_session = False
@@ -394,6 +411,23 @@ check(
     fake_lcu.patches == [(10, 99), (10, 99)] and w._ban_handled is True,
     str(fake_lcu.patches),
 )
+
+# ============ T14e: ban fail kéo dài nhưng action còn mở → tiếp tục chờ ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [action(20, "pick", in_progress=False)]]
+)
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 99
+fake_lcu.patch_ok = False
+for _ in range(6):
+    w._tick()
+check("T14e: quá 5 lần fail nhưng chưa kết thúc phase", w._ban_handled is False)
+fake_lcu.session["actions"][0][0]["championId"] = 99
+w._tick()
+check("T14f: action đã có champion → tôn trọng action", w._ban_handled is True)
 
 # ============ T15: game_mode() trả None → không làm gì, không crash ============
 reset_state()

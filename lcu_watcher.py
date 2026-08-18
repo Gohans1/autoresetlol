@@ -277,6 +277,8 @@ class LcuWatcher(threading.Thread):
                     action.get("type") == action_type
                     and action.get("actorCellId") == local
                     and action.get("completed")
+                    and isinstance(action.get("championId"), int)
+                    and action.get("championId", 0) > 0
                 ):
                     return True
         return False
@@ -317,6 +319,13 @@ class LcuWatcher(threading.Thread):
         return picks
 
     @staticmethod
+    def _real_pick_open(session: dict) -> bool:
+        return any(
+            LcuWatcher._action_is_in_progress(action)
+            for action in LcuWatcher._pick_phase_actions(session)
+        )
+
+    @staticmethod
     def _revealed_banned_ids(session: dict) -> tuple[bool, set[int]]:
         """Return ban IDs after summaries or the real Pick phase is visible."""
         bans = session.get("bans") if isinstance(session, dict) else None
@@ -346,11 +355,7 @@ class LcuWatcher(threading.Thread):
             and isinstance(action.get("championId"), int)
             and action.get("championId") > 0
         }
-        real_pick_open = any(
-            LcuWatcher._action_is_in_progress(action)
-            for action in LcuWatcher._pick_phase_actions(session)
-        )
-        if ban_action_ids and real_pick_open:
+        if ban_action_ids and LcuWatcher._real_pick_open(session):
             return True, ban_action_ids
         return False, set()
 
@@ -536,6 +541,24 @@ class LcuWatcher(threading.Thread):
             return
 
         all_bans = self._all_my_actions(session, "ban")
+        for action in all_bans:
+            if action.get("championId", 0) > 0:
+                # User đã tự chọn, hoặc PATCH đã được client giữ lại nhưng
+                # read-after-write không bắt kịp. Không ghi đè.
+                self._arena_event(
+                    f"Ban: action đã có tướng {self._champ_name(action.get('championId', 0))} — không ghi đè",
+                    "gray",
+                )
+                self._ban_handled = True
+                return
+
+        if self._ban_fail_count > 0 and self._real_pick_open(session):
+            self._alert(
+                "⚠️ Không xác minh được tướng cấm trước khi vào Pick — hãy tự chọn.",
+            )
+            self._ban_handled = True
+            return
+
         if not all_bans:
             if self._has_my_completed_action(session, "ban"):
                 self._arena_event("Ban: user đã khóa tướng — không ghi đè", "gray")
@@ -601,16 +624,14 @@ class LcuWatcher(threading.Thread):
                 self._ban_handled = True
                 self._ban_fail_count = 0
                 return
-            # PATCH fail — thử lại; sau 5 lần liên tiếp thì báo + dừng
+            # PATCH fail — giữ action chưa handled; retry đến khi action
+            # đóng hoặc chuyển sang Pick thật.
             self._ban_fail_count += 1
             self._arena_event(
                 f"Cấm {self._champ_name(target)} chưa thành công — thử lại "
-                f"({self._ban_fail_count}/5)",
+                f"(lần {self._ban_fail_count})",
                 "orange",
             )
-            if self._ban_fail_count >= 5:
-                self._alert("⚠️ Không đặt được tướng cấm tự động — hãy chọn.")
-                self._ban_handled = True
             return
 
     # ---- pick ----

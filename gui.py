@@ -326,6 +326,7 @@ class AntiFateApp(ctk.CTk):
         # Fetch generation — spam nút ⟳ có nhiều thread fetch chồng nhau;
         # chỉ kết quả của generation MỚI NHẤT được áp dụng.
         self._arena_fetch_gen: int = 0
+        self._arena_validation_after_id = None
 
         chain = list(config_manager.get("arena_pick_chain") or [0, 0, 0, 0])
         while len(chain) < 4:
@@ -490,6 +491,47 @@ class AntiFateApp(ctk.CTk):
             fg_color="transparent",
         )
         self.arena_summary_rows.pack(fill="x", padx=10, pady=(0, 2))
+        self.arena_summary_value_labels: Dict[str, ctk.CTkLabel] = {}
+        self.arena_summary_tag_labels: Dict[str, ctk.CTkLabel] = {}
+
+        def create_summary_row(key: str, label: str) -> None:
+            row = ctk.CTkFrame(self.arena_summary_rows, fg_color="transparent")
+            row.pack(fill="x", pady=(0, 2))
+            ctk.CTkLabel(
+                row,
+                text=label,
+                width=72,
+                anchor="w",
+                font=(AppConfig.FONT_FAMILY, 10, "bold"),
+                text_color=Colors.MUTED_FG,
+            ).pack(side="left")
+            tag = ctk.CTkLabel(
+                row,
+                text="Tắt",
+                width=52,
+                height=20,
+                corner_radius=4,
+                fg_color=Colors.BORDER,
+                text_color=Colors.MUTED_FG,
+                font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            )
+            tag.pack(side="right")
+            value = ctk.CTkLabel(
+                row,
+                text="Chưa chọn",
+                anchor="w",
+                justify="left",
+                wraplength=360,
+                font=(AppConfig.FONT_FAMILY, 10),
+                text_color=Colors.FG,
+            )
+            value.pack(side="left", fill="x", expand=True, padx=(4, 6))
+            self.arena_summary_value_labels[key] = value
+            self.arena_summary_tag_labels[key] = tag
+
+        create_summary_row("ban", "🛡 CẤM")
+        create_summary_row("pick", "🎯 CHỌN")
+
         self.arena_summary_note = ctk.CTkLabel(
             self.arena_summary_frame,
             text="",
@@ -904,6 +946,20 @@ class AntiFateApp(ctk.CTk):
         except Exception:
             pass
 
+    def _schedule_arena_validation(self) -> None:
+        """Debounce draft validation while the user is typing."""
+        if self._arena_validation_after_id:
+            try:
+                self.after_cancel(self._arena_validation_after_id)
+            except Exception:
+                pass
+
+        def _refresh() -> None:
+            self._arena_validation_after_id = None
+            self._refresh_arena_validation()
+
+        self._arena_validation_after_id = self.after(180, _refresh)
+
     def _refresh_arena_validation(
         self, force_errors: bool = False
     ) -> List[ArenaConfigIssue]:
@@ -950,58 +1006,32 @@ class AntiFateApp(ctk.CTk):
                 text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
             )
 
-            for child in self.arena_summary_rows.winfo_children():
-                child.destroy()
-
             scale = config_manager.get("ui_scale") or 1.0
             wraplength = int(360 / max(0.8, float(scale)))
-
-            def add_row(label: str, value: str, tag: str, tag_color: str) -> None:
-                row = ctk.CTkFrame(self.arena_summary_rows, fg_color="transparent")
-                row.pack(fill="x", pady=(0, 2))
-                ctk.CTkLabel(
-                    row,
-                    text=label,
-                    width=72,
-                    anchor="w",
-                    font=(AppConfig.FONT_FAMILY, 10, "bold"),
-                    text_color=Colors.MUTED_FG,
-                ).pack(side="left")
-                ctk.CTkLabel(
-                    row,
-                    text=tag,
-                    width=52,
-                    height=20,
-                    corner_radius=4,
-                    fg_color=tag_color,
-                    text_color=Colors.BG if tag_color != Colors.BORDER else Colors.MUTED_FG,
-                    font=(AppConfig.FONT_FAMILY, 9, "bold"),
-                ).pack(side="right")
-                ctk.CTkLabel(
-                    row,
-                    text=value,
-                    anchor="w",
-                    justify="left",
-                    wraplength=wraplength,
-                    font=(AppConfig.FONT_FAMILY, 10),
-                    text_color=Colors.FG,
-                ).pack(side="left", fill="x", expand=True, padx=(4, 6))
-
-            add_row(
-                "🛡 CẤM",
-                self._arena_summary_value("ban"),
-                "Bật" if auto_ban else "Tắt",
-                Colors.GREEN if auto_ban else Colors.BORDER,
-            )
             pick_values = " → ".join(
                 self._arena_summary_value(key) for key in ("main", "b1", "b2", "b3")
             )
-            add_row(
-                "🎯 CHỌN",
-                pick_values,
-                "Bật" if auto_pick else "Tắt",
-                Colors.GREEN if auto_pick else Colors.BORDER,
-            )
+            summary_values = {
+                "ban": self._arena_summary_value("ban"),
+                "pick": pick_values,
+            }
+            summary_states = {
+                "ban": ("Bật" if auto_ban else "Tắt", Colors.GREEN if auto_ban else Colors.BORDER),
+                "pick": ("Bật" if auto_pick else "Tắt", Colors.GREEN if auto_pick else Colors.BORDER),
+            }
+            for key, value in summary_values.items():
+                self.arena_summary_value_labels[key].configure(
+                    text=value,
+                    wraplength=wraplength,
+                )
+                tag, tag_color = summary_states[key]
+                self.arena_summary_tag_labels[key].configure(
+                    text=tag,
+                    fg_color=tag_color,
+                    text_color=(
+                        Colors.BG if tag_color != Colors.BORDER else Colors.MUTED_FG
+                    ),
+                )
 
             notes = []
             if has_active_saved_ids:
@@ -1251,7 +1281,7 @@ class AntiFateApp(ctk.CTk):
             if key in OPTIONAL_PICK_FIELDS and not self.arena_combos[key].get().strip():
                 self._on_arena_combo(key)
             self._update_suggest(key)
-            self._refresh_arena_validation()
+            self._schedule_arena_validation()
         except Exception:
             pass
 
@@ -2620,6 +2650,9 @@ class AntiFateApp(ctk.CTk):
         if self._beacon_pulse_id:
             self.after_cancel(self._beacon_pulse_id)
             self._beacon_pulse_id = None
+        if self._arena_validation_after_id:
+            self.after_cancel(self._arena_validation_after_id)
+            self._arena_validation_after_id = None
         if self._dimmer_watchdog_id:
             self.after_cancel(self._dimmer_watchdog_id)
             self._dimmer_watchdog_id = None
