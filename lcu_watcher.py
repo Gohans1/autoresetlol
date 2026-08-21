@@ -444,15 +444,6 @@ class LcuWatcher(threading.Thread):
         return isinstance(action, dict) and action.get("isInProgress") is True
 
     @staticmethod
-    def _my_actions(session: dict, action_type: str) -> list:
-        """Action ban/pick CỦA MÌNH, đang in-progress (chưa complete)."""
-        return [
-            a
-            for a in LcuWatcher._all_my_actions(session, action_type)
-            if LcuWatcher._action_is_in_progress(a)
-        ]
-
-    @staticmethod
     def _all_my_actions(session: dict, action_type: str) -> list:
         """MỌI action ban/pick của mình CHƯA complete — kể cả chưa in-progress.
 
@@ -520,12 +511,8 @@ class LcuWatcher(threading.Thread):
         return False
 
     @staticmethod
-    def _pick_phase_actions(session: dict) -> list:
-        """Return local pick actions after the local ban action group.
-
-        Arena exposes a Pick Intent group before the Ban group. Flattening all
-        pick actions loses that boundary and can select the intent action.
-        """
+    def _post_ban_groups(session: dict) -> list:
+        """Action groups after the last local Ban group (real Pick zone)."""
         try:
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
@@ -542,9 +529,21 @@ class LcuWatcher(threading.Thread):
         ]
         if not ban_group_indices:
             return []
-        last_ban_group = max(ban_group_indices)
+        return groups[max(ban_group_indices) + 1 :]
+
+    @staticmethod
+    def _pick_phase_actions(session: dict) -> list:
+        """Return local pick actions after the local ban action group.
+
+        Arena exposes a Pick Intent group before the Ban group. Flattening all
+        pick actions loses that boundary and can select the intent action.
+        """
+        try:
+            local = session["localPlayerCellId"]
+        except (KeyError, TypeError):
+            return []
         picks = []
-        for group in groups[last_ban_group + 1 :]:
+        for group in LcuWatcher._post_ban_groups(session):
             for action in group:
                 if (
                     action.get("type") == "pick"
@@ -553,6 +552,28 @@ class LcuWatcher(threading.Thread):
                 ):
                     picks.append(action)
         return picks
+
+    @staticmethod
+    def _has_my_completed_post_ban_pick(session: dict) -> bool:
+        """Return True only for a completed local Pick AFTER the Ban group.
+
+        The pre-ban Pick Intent group is not the real pick: a completed intent
+        must not stop auto-pick once the real Pick phase opens.
+        """
+        try:
+            local = session["localPlayerCellId"]
+        except (KeyError, TypeError):
+            return False
+        for group in LcuWatcher._post_ban_groups(session):
+            for action in group:
+                if (
+                    action.get("type") == "pick"
+                    and action.get("actorCellId") == local
+                    and action.get("completed")
+                    and LcuWatcher._action_champion_id(action) > 0
+                ):
+                    return True
+        return False
 
     @staticmethod
     def _real_pick_open(session: dict) -> bool:
@@ -995,7 +1016,7 @@ class LcuWatcher(threading.Thread):
             return
         all_picks = self._pick_phase_actions(session)
         if not all_picks:
-            if self._has_my_completed_action(session, "pick"):
+            if self._has_my_completed_post_ban_pick(session):
                 self._automation_state_event(
                     generation,
                     "Pick: user đã khóa tướng — không ghi đè",
@@ -1206,6 +1227,21 @@ class LcuWatcher(threading.Thread):
             return  # vẫn đang giữ đúng tướng — ổn
         if self._pick_holders(session, self._arena_state.pick_picked_id):
             self._pick_lost(session, generation)
+            return
+        if current == 0:
+            # Hover bị client xóa (championId=0) mà KHÔNG AI giữ tướng cũ:
+            # trạng thái CHƯA BIẾT, không kết luận "bạn đã tự chọn".
+            def hover_cleared() -> None:
+                self._arena_state.pick_picked_id = 0
+                self._arena_state.pick_handled = False
+                self._arena_state.pick_wait_logged = True
+
+            self._automation_state_event(
+                generation,
+                "Pick: hover bị xóa — bot chọn lại",
+                "orange",
+                hover_cleared,
+            )
             return
         # Tướng cũ không còn ai giữ và action của mình đã đổi
         # → không phải team lấy — là BẠN TỰ đổi. Tôn trọng, dừng hẳn.

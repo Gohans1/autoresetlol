@@ -998,6 +998,109 @@ early_watcher.start()
 early_watcher.join(timeout=2)
 check("T30f: watcher STOP sớm không chạy tick", early_ticks == [], str(early_ticks))
 
+# ============ T31: Pick Intent completed KHÔNG chặn auto-pick thật ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+INTENT_DONE = action(5, "pick", completed=True, champion_id=7)
+fake_lcu.session = make_session(actions=[[INTENT_DONE], [BAN_ACTION]])
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+w._tick()
+check(
+    "T31a: intent hoàn tất không khóa pick_handled",
+    w._arena_state.pick_handled is False,
+    str(w._arena_state),
+)
+check("T31b: chưa có pick thật → chưa PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
+# Ban xong → lộ ban summary + pick THẬT mở sau nhóm ban
+fake_lcu.session = make_session(
+    actions=[
+        [INTENT_DONE],
+        [action(10, "ban", champion_id=3)],
+        [PICK_ACTION],
+    ],
+    bans_my=[3],
+)
+w._tick()
+check(
+    "T31c: pick thật mở → PATCH chuỗi bình thường",
+    fake_lcu.patches == [(20, 1)],
+    str(fake_lcu.patches),
+)
+
+# ============ T32: hover bị client xóa (cid=0) → chọn lại, không dừng ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3)], [action(20, "pick", champion_id=1)]],
+    bans_my=[3],
+)
+w._tick()
+w._arena_state.pick_picked_id = 1
+w._arena_state.pick_handled = True
+# Client xóa hover: action còn nhưng championId=0, không ai giữ tướng 1
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3)], [action(20, "pick")]],
+    bans_my=[3],
+)
+w._tick()
+check(
+    "T32a: hover bị xóa là unknown → không kết luận 'tự chọn' và không dừng",
+    w._arena_state.pick_handled is False,
+    str(w._arena_state),
+)
+w._tick()
+check(
+    "T32b: tick sau bot chọn lại tướng đầu chuỗi",
+    fake_lcu.patches == [(20, 1)],
+    str(fake_lcu.patches),
+)
+
+# ============ T33: automation chết giữa tick → không phát event hover-cleared ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3)], [action(20, "pick", champion_id=1)]],
+    bans_my=[3],
+)
+w._tick()
+w._arena_state.pick_picked_id = 1
+w._arena_state.pick_handled = True
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3)], [action(20, "pick")]],
+    bans_my=[3],
+)
+real_holders = lcu_watcher.LcuWatcher._pick_holders
+
+
+def holders_then_stop(session, cid):
+    # Lease chết NGAY TRƯỚC nhánh hover-cleared. Set event trực tiếp thay vì
+    # stop() vì stop() tự reset arena state theo thiết kế → không phân biệt được.
+    w._stop_event.set()
+    return real_holders(session, cid)
+
+
+w._pick_holders = holders_then_stop
+ARENA_EVENTS.clear()
+w._pick_watch(fake_lcu.session)
+check(
+    "T33: lease chết giữa tick → không event 'bot chọn lại'",
+    ARENA_EVENTS == [],
+    str(ARENA_EVENTS),
+)
+check(
+    "T33b: state không đổi khi lease chết",
+    w._arena_state.pick_handled is True and w._arena_state.pick_picked_id == 1,
+    str(w._arena_state),
+)
+
 # ============ KẾT LUẬN ============
 print()
 if FAILURES:

@@ -378,6 +378,7 @@ check("T10: navigation key không reset suggestion", True)
 
 # ============ T10b: virtual edit cũng là draft ============
 app = AntiFateApp.__new__(AntiFateApp)
+app.after_idle = lambda callback: callback()
 app.arena_combos = {"b1": FakeValueCombo("Yasuo")}
 app._arena_draft_keys = set()
 app._arena_field_error_visible = {"b1": False}
@@ -395,6 +396,37 @@ check(
         for issue in virtual_draft_issues
     ),
     str(virtual_draft_issues),
+)
+
+# ============ T10c: virtual edit defer qua after_idle ============
+# Widget binding chạy TRƯỚC class binding của Entry → lúc handler chạy,
+# entry còn chữ TRƯỚC paste. Phải defer, không được đọc-chồng ngay.
+app = AntiFateApp.__new__(AntiFateApp)
+deferred = []
+app.after_idle = lambda callback: deferred.append(callback)
+app.arena_combos = {"b1": FakeValueCombo("")}
+app._arena_draft_keys = set()
+app._arena_field_error_visible = {"b1": False}
+app._update_suggest = lambda _key: None
+app._schedule_arena_validation = lambda: None
+commits = []
+app._on_arena_combo = lambda key: commits.append(key)
+AntiFateApp._on_arena_virtual_edit(app, "b1")
+check("T10c1: virtual edit không xử lý đồng bộ", deferred != [], str(deferred))
+check("T10c2: chưa có commit nào trước idle", commits == [], str(commits))
+# Giả lập paste đã đổ chữ vào entry TRƯỚC khi idle callback chạy
+app.arena_combos["b1"].set("Yasuo")
+for callback in deferred:
+    callback()
+check(
+    "T10c3: optional rỗng + paste → không tự commit 0 ('Không')",
+    commits == [],
+    str(commits),
+)
+check(
+    "T10c4: field được đánh dấu draft chờ Enter/focus-out",
+    "b1" in app._arena_draft_keys,
+    str(app._arena_draft_keys),
 )
 
 # ============ T11: newest Arena event appears first ============

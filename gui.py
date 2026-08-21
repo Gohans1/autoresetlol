@@ -1304,7 +1304,11 @@ class AntiFateApp(ctk.CTk):
 
     def _on_arena_virtual_edit(self, key: str) -> None:
         """Mark clipboard/IME edits as draft even without a KeyRelease."""
-        self._on_arena_combo_key(key)
+        # Widget bindings fire before the Entry class binding, so the entry
+        # still holds PRE-paste text here. Defer past it: the handler must
+        # read the post-mutation text, or an empty optional field would
+        # auto-commit 0 ("Không") on top of the incoming paste.
+        self.after_idle(lambda: self._on_arena_combo_key(key))
 
     def _on_arena_combo_click(self, key: str) -> None:
         """Click vào ô → chỉ để gõ sửa (gợi ý tự hiện khi gõ ký tự đầu)."""
