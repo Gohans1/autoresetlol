@@ -5,6 +5,7 @@ Không cần client LoL thật - mock toàn bộ LCU + winsound + config.
 Chạy: .venv/Scripts/python.exe _test_arena_select.py
 """
 import sys
+import threading
 import time
 import types
 import copy
@@ -34,6 +35,8 @@ class FakeLCU:
         self.session_reads = 0
         self.mutate_pick_on_second_read = False
         self.patch_state_champion_id = None
+        self.patch_entered: Optional[threading.Event] = None
+        self.patch_release: Optional[threading.Event] = None
 
     def gameflow_phase(self):
         return self.phase
@@ -52,6 +55,10 @@ class FakeLCU:
         return self.session
 
     def set_action_champion(self, action_id, champion_id):
+        if self.patch_entered is not None:
+            self.patch_entered.set()
+            if self.patch_release is not None:
+                self.patch_release.wait(2)
         if not self.patch_ok:
             return False
         self.patches.append((action_id, champion_id))
@@ -124,6 +131,7 @@ def make_session(local_cell=0, actions=None, bans_my=None, bans_their=None):
 FAILURES = []
 STATUS_LOG = []
 ARENA_EVENTS = []
+NOTIFICATIONS = []
 
 
 def check(name, cond, detail=""):
@@ -136,15 +144,19 @@ def check(name, cond, detail=""):
 def make_watcher():
     STATUS_LOG.clear()
     ARENA_EVENTS.clear()
+    NOTIFICATIONS.clear()
     fake_lcu.patches.clear()
     fake_lcu.patch_ok = True
     fake_lcu.apply_patch_to_session = True
     fake_lcu.session_reads = 0
     fake_lcu.mutate_pick_on_second_read = False
     fake_lcu.patch_state_champion_id = None
+    fake_lcu.patch_entered = None
+    fake_lcu.patch_release = None
     w = lcu_watcher.LcuWatcher(
         update_status_callback=lambda t, c: STATUS_LOG.append((t, c)),
         arena_event_callback=lambda t, c: ARENA_EVENTS.append((t, c)),
+        notification_callback=lambda *args: NOTIFICATIONS.append(args),
     )
     w.running = True
     w.set_automation_enabled(True)
@@ -204,6 +216,50 @@ check(
     ),
     str(ARENA_EVENTS),
 )
+check(
+    "T3 notification: ban verified",
+    any(
+        event == "arena.ban_verified"
+        and message == "BAN đã xác minh: TestBan"
+        and key
+        for event, message, key in NOTIFICATIONS
+    ),
+    str(NOTIFICATIONS),
+)
+
+# ============ T3c2: vào game Arena chỉ báo một lần ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session()
+w._tick()
+fake_lcu.phase = "GameStart"
+w._tick()
+fake_lcu.phase = "InProgress"
+w._tick()
+w._tick()
+check(
+    "T3c2: vào game Arena chỉ báo một lần",
+    [event for event, _message, key in NOTIFICATIONS]
+    == ["arena.in_progress"]
+    and NOTIFICATIONS[0][2],
+    str(NOTIFICATIONS),
+)
+
+# ============ T3c3: Classic vào game không báo Arena ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.mode = "CLASSIC"
+fake_lcu.session = make_session()
+w._tick()
+fake_lcu.phase = "InProgress"
+w._tick()
+check(
+    "T3c3: Classic không gửi Arena notification",
+    NOTIFICATIONS == [],
+    str(NOTIFICATIONS),
+)
 
 # ============ T3d: Arena ID 60053 phải xác minh với action ID 53 ============
 reset_state()
@@ -261,7 +317,7 @@ fake_lcu.session = make_session(
 fake_config["auto_ban_enabled"] = True
 fake_config["arena_ban_champ"] = 99
 w._tick()
-check("T5b: completed champion=0 → chưa đánh dấu ban", w._ban_handled is False)
+check("T5b: completed champion=0 → chưa đánh dấu ban", w._arena_state.ban_handled is False)
 check("T5b: completed champion=0 → không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
 
 # ============ T6: pick — main bị ban → dự bị ============
@@ -273,6 +329,16 @@ fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]  # main=1 (bị ban) → Yasuo=2
 w._tick()
 check("T6: main bị ban → pick dự bị (20, 2)", fake_lcu.patches == [(20, 2)], str(fake_lcu.patches))
+check(
+    "T6 notification: pick verified",
+    any(
+        event == "arena.pick_verified"
+        and message == "PICK đã xác minh: Yasuo"
+        and key
+        for event, message, key in NOTIFICATIONS
+    ),
+    str(NOTIFICATIONS),
+)
 
 # ============ T7: hết sạch dự bị → alert 1 lần, không PATCH ============
 reset_state()
@@ -328,7 +394,7 @@ check(
     fake_lcu.patches == [],
     str(fake_lcu.patches),
 )
-check("T8c2: vẫn chờ phase Pick thật", w._pick_handled is False, str(w._pick_handled))
+check("T8c2: vẫn chờ phase Pick thật", w._arena_state.pick_handled is False, str(w._arena_state.pick_handled))
 fake_lcu.session["actions"][2][0]["isInProgress"] = True
 w._tick()
 check(
@@ -431,14 +497,14 @@ fake_lcu.apply_patch_to_session = False
 w._tick()
 check(
     "T14c: PATCH không được xác minh → ban chưa handled",
-    fake_lcu.patches == [(10, 99)] and w._ban_handled is False,
+    fake_lcu.patches == [(10, 99)] and w._arena_state.ban_handled is False,
     str(fake_lcu.patches),
 )
 fake_lcu.apply_patch_to_session = True
 w._tick()
 check(
     "T14d: verify fail → tick sau retry và thành công",
-    fake_lcu.patches == [(10, 99), (10, 99)] and w._ban_handled is True,
+    fake_lcu.patches == [(10, 99), (10, 99)] and w._arena_state.ban_handled is True,
     str(fake_lcu.patches),
 )
 
@@ -454,12 +520,12 @@ fake_config["arena_ban_champ"] = 99
 fake_lcu.patch_ok = False
 for _ in range(6):
     w._tick()
-check("T14e: quá 5 lần fail nhưng chưa kết thúc phase", w._ban_handled is False)
+check("T14e: quá 5 lần fail nhưng chưa kết thúc phase", w._arena_state.ban_handled is False)
 fake_lcu.session["actions"][0][0]["championId"] = 99
 w._tick()
 check(
     "T14f: PATCH bị từ chối rồi user chọn → tôn trọng lựa chọn",
-    w._ban_handled is True
+    w._arena_state.ban_handled is True
     and ARENA_EVENTS[-1][0].startswith("Bạn đã tự cấm:")
     and ARENA_EVENTS[-1][1] == "gray",
     str(ARENA_EVENTS[-1]),
@@ -482,7 +548,7 @@ fake_lcu.session["actions"][0][0]["isInProgress"] = False
 w._tick()
 check(
     "T14g: completed action cùng target → xác minh sau retry",
-    w._ban_handled is True
+    w._arena_state.ban_handled is True
     and ARENA_EVENTS[-1][0].startswith("Đã cấm:")
     and "xác minh sau retry" in ARENA_EVENTS[-1][0]
     and ARENA_EVENTS[-1][1] == "green",
@@ -566,7 +632,7 @@ fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 w._tick()
 check("T20a: bans trống, mới vào → chờ, không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
-w._champ_select_since = time.time() - 45  # giả lập đã chờ lâu
+w._arena_state.champ_select_since = time.time() - 45  # giả lập đã chờ lâu
 w._tick()
 check("T20b: quá 40s → không PATCH khi bans chưa biết", fake_lcu.patches == [], str(fake_lcu.patches))
 check(
@@ -593,7 +659,7 @@ fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 w._tick()
 check("T21a: pick chưa mở → chờ, KHÔNG PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
-check("T21b: chưa đánh dấu handled (vẫn chờ)", w._pick_handled is False, str(w._pick_handled))
+check("T21b: chưa đánh dấu handled (vẫn chờ)", w._arena_state.pick_handled is False, str(w._arena_state.pick_handled))
 # Tick sau: pick phase mở → pick thành công
 w._tick()
 check("T21c: pick phase vẫn chưa mở → vẫn chờ", fake_lcu.patches == [], str(fake_lcu.patches))
@@ -615,7 +681,7 @@ fake_lcu.session = make_session(actions=[[BAN_ACTION]], bans_my=[3])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
-check("T21e: chưa có pick action → không đánh dấu handled", w._pick_handled is False)
+check("T21e: chưa có pick action → không đánh dấu handled", w._arena_state.pick_handled is False)
 fake_lcu.session = make_session(
     actions=[[BAN_ACTION], [PICK_ACTION]],
     bans_my=[3],
@@ -634,7 +700,7 @@ fake_config["auto_ban_enabled"] = True
 fake_config["arena_ban_champ"] = 99
 w._tick()
 check("T22a: ban chưa mở → chờ, KHÔNG PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
-check("T22b: chưa handled", w._ban_handled is False, str(w._ban_handled))
+check("T22b: chưa handled", w._arena_state.ban_handled is False, str(w._arena_state.ban_handled))
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", in_progress=True)], [PICK_ACTION]]
 )
@@ -702,7 +768,7 @@ fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
 check("T27a: bot hover main (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
-check("T27b: nhớ tướng đang giữ", w._pick_picked_id == 1, str(w._pick_picked_id))
+check("T27b: nhớ tướng đang giữ", w._arena_state.pick_picked_id == 1, str(w._arena_state.pick_picked_id))
 # Teammate (actor 9) lấy mất tướng 1, mình bị reset về rỗng
 fake_lcu.session = make_session(
     actions=[
@@ -713,11 +779,11 @@ fake_lcu.session = make_session(
     bans_my=[3],
 )
 w._tick()
-check("T27c: phát hiện bị lấy", w._pick_picked_id == 0 and w._pick_handled is False, str((w._pick_picked_id, w._pick_handled)))
+check("T27c: phát hiện bị lấy", w._arena_state.pick_picked_id == 0 and w._arena_state.pick_handled is False, str((w._arena_state.pick_picked_id, w._arena_state.pick_handled)))
 check(
     "T27d: ghi nhớ tướng đã thử để không chọn lại",
-    1 in w._pick_attempted_ids,
-    str(w._pick_attempted_ids),
+    1 in w._arena_state.pick_attempted_ids,
+    str(w._arena_state.pick_attempted_ids),
 )
 w._tick()
 check("T27e: nhảy sang dự bị (20, 2)", fake_lcu.patches[-1] == (20, 2), str(fake_lcu.patches))
@@ -737,7 +803,7 @@ fake_lcu.session = make_session(
     bans_my=[3],
 )
 w._tick()
-check("T28b: dừng hẳn, không giành lại", w._pick_handled is True and w._pick_picked_id == 0, str((w._pick_handled, w._pick_picked_id)))
+check("T28b: dừng hẳn, không giành lại", w._arena_state.pick_handled is True and w._arena_state.pick_picked_id == 0, str((w._arena_state.pick_handled, w._arena_state.pick_picked_id)))
 before = list(fake_lcu.patches)
 w._tick()
 check("T28c: không PATCH thêm", fake_lcu.patches == before, str(fake_lcu.patches))
@@ -822,6 +888,115 @@ check(
     str(ARENA_EVENTS),
 )
 fake_lcu.owned_raises = False
+
+# ============ T30e: disable giữa PATCH và read-back không commit state ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+generation = w._automation_snapshot()
+if generation is None:
+    raise AssertionError("automation generation must be active in the race test")
+original_session_reader = fake_lcu.champ_select_session
+
+
+def disable_during_readback():
+    w.set_automation_enabled(False)
+    return fake_lcu.session
+
+
+fake_lcu.champ_select_session = disable_during_readback
+try:
+    result = w._set_action_champion_verified("ban", 10, 99, generation)
+finally:
+    fake_lcu.champ_select_session = original_session_reader
+check("T30e1: disable giữa read-back hủy kết quả", result is None, str(result))
+check(
+    "T30e2: disable giữa read-back không giữ pending state",
+    w._arena_state.ban_pending_action is None
+    and w._arena_state.ban_handled is False
+    and NOTIFICATIONS == [],
+    str((w._arena_state.ban_pending_action, w._arena_state.ban_handled, NOTIFICATIONS)),
+)
+
+# ============ T30g: disable không chờ PATCH network ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+generation = w._automation_snapshot()
+if generation is None:
+    raise AssertionError("automation generation must be active in the blocked PATCH test")
+assert generation is not None
+patch_entered = threading.Event()
+patch_release = threading.Event()
+fake_lcu.patch_entered = patch_entered
+fake_lcu.patch_release = patch_release
+result_holder = []
+
+
+def blocked_patch():
+    result_holder.append(w._set_action_champion_verified("ban", 10, 99, generation))
+
+
+patch_thread = threading.Thread(target=blocked_patch)
+patch_thread.start()
+check("T30g1: PATCH đã vào điểm chặn", patch_entered.wait(1))
+disable_done = threading.Event()
+
+
+def disable_while_patch_blocked():
+    w.set_automation_enabled(False)
+    disable_done.set()
+
+
+disable_thread = threading.Thread(target=disable_while_patch_blocked)
+disable_thread.start()
+check("T30g2: disable không chờ PATCH", disable_done.wait(1))
+patch_release.set()
+patch_thread.join(timeout=2)
+disable_thread.join(timeout=2)
+fake_lcu.patch_entered = None
+fake_lcu.patch_release = None
+check("T30g3: PATCH stale bị hủy", result_holder == [None], str(result_holder))
+check(
+    "T30g4: PATCH stale không commit state/notification",
+    w._arena_state.ban_pending_action is None and NOTIFICATIONS == [],
+    str((w._arena_state.ban_pending_action, NOTIFICATIONS)),
+)
+
+# ============ T30h: stop từ event callback chặn notification ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+generation = w._automation_snapshot()
+if generation is None:
+    raise AssertionError("automation generation must be active in callback stop test")
+
+
+def stop_on_verified_event(text, _color):
+    if text.startswith("Đã cấm:"):
+        w.stop()
+
+
+w.arena_event_callback = stop_on_verified_event
+result = w._commit_verified_action(generation, "ban", 10, 99)
+check("T30h1: callback STOP hủy commit", result is False, str(result))
+check(
+    "T30h2: callback STOP không gửi notification",
+    w._arena_state.ban_handled is False and NOTIFICATIONS == [],
+    str((w._arena_state.ban_handled, NOTIFICATIONS)),
+)
+
+# ============ T30f: watcher STOP trước khi run không poll ============
+early_watcher = lcu_watcher.LcuWatcher()
+early_ticks = []
+early_watcher._tick = lambda: early_ticks.append("tick")
+early_watcher.stop()
+early_watcher.start()
+early_watcher.join(timeout=2)
+check("T30f: watcher STOP sớm không chạy tick", early_ticks == [], str(early_ticks))
 
 # ============ KẾT LUẬN ============
 print()

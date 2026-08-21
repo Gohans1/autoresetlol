@@ -22,8 +22,16 @@ from bot import AntiFateBot
 from lcu_watcher import LcuWatcher
 from utils.windows import DimmerController, set_autostart
 from utils.lcu import lcu
-from constants import AppConfig, Colors, UIStatus
+from constants import (
+    AppConfig,
+    Colors,
+    DefaultConfig,
+    DISCORD_NOTIFICATION_SPECS,
+    NotificationSpec,
+    UIStatus,
+)
 from logger import logger
+from notifications import HermesNotifier
 
 
 ARENA_FIELD_LABELS = {
@@ -58,7 +66,7 @@ class AntiFateApp(ctk.CTk):
         # via footer dropdown (persisted to config).
         saved_scale = config_manager.get("ui_scale")
         if saved_scale is None:
-            saved_scale = 1.25
+            saved_scale = DefaultConfig.UI_SCALE
             config_manager.set("ui_scale", saved_scale)
         saved_scale = max(0.8, min(2.0, float(saved_scale)))  # Wider range for 16px+
         ctk.set_widget_scaling(saved_scale)
@@ -112,6 +120,7 @@ class AntiFateApp(ctk.CTk):
         self._bot_stopping = False
         self._arena_automation_enabled = False
         self._arena_live_events: List[Tuple[str, str, str]] = []
+        self.notifier = HermesNotifier()
         self.dimmer = DimmerController()
         self._dimmer_watchdog_id = None
         self._watchdog_drift_count = 0
@@ -119,6 +128,9 @@ class AntiFateApp(ctk.CTk):
         self.dimmer_enabled_var = ctk.BooleanVar(value=True)
         self.auto_startup_enabled_var = ctk.BooleanVar(value=False)
         self.auto_accept_enabled_var = ctk.BooleanVar(value=True)
+        self.discord_notify_ban_var = ctk.BooleanVar(value=False)
+        self.discord_notify_pick_var = ctk.BooleanVar(value=False)
+        self.discord_notify_in_game_var = ctk.BooleanVar(value=False)
         self.dimmer_mode_var = tk.StringVar(value="browsing")  # "gaming" or "browsing"
         self._skip_dimmer_save = False  # Flag to prevent double-save in auto-switch
         self._dimmer_reset_visual = (
@@ -153,6 +165,7 @@ class AntiFateApp(ctk.CTk):
             on_browsing_callback=self.switch_to_browsing_mode,
             arena_event_callback=self.update_arena_live,
             connection_callback=self._on_arena_connection_changed,
+            notification_callback=self.notifier.notify,
         )
         self.arena_watcher.start()
 
@@ -270,13 +283,13 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             header,
             text="🧙 Arena — Tự ban / chọn tướng",
-            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            font=(AppConfig.FONT_FAMILY, 15, "bold"),
             text_color=Colors.PRIMARY,
         ).pack(side="left")
         ctk.CTkLabel(
             header,
             text="chỉ chạy khi chơi Arena",
-            font=(AppConfig.FONT_FAMILY, 10),
+            font=(AppConfig.FONT_FAMILY, 12),
             text_color=Colors.MUTED_FG,
         ).pack(side="right")
 
@@ -341,6 +354,7 @@ class AntiFateApp(ctk.CTk):
             "b2": champion_id(chain[2]),
             "b3": champion_id(chain[3]),
         }
+        self._arena_draft_keys: set[str] = set()
 
         def make_combo_row(parent, key, label) -> None:
             """1 hàng: label + combo tướng (indent theo toggle chủ)."""
@@ -351,7 +365,7 @@ class AntiFateApp(ctk.CTk):
                 text=label,
                 width=110,
                 anchor="w",
-                font=(AppConfig.FONT_FAMILY, 11),
+                font=(AppConfig.FONT_FAMILY, 13),
                 text_color=Colors.FG,
             ).pack(side="left")
             empty_label = (
@@ -370,7 +384,7 @@ class AntiFateApp(ctk.CTk):
                 parent,
                 text="Chưa chọn",
                 anchor="w",
-                font=(AppConfig.FONT_FAMILY, 10),
+                font=(AppConfig.FONT_FAMILY, 12),
                 text_color=Colors.MUTED_FG,
             )
             field_status.pack(fill="x", padx=(130, 0), pady=(0, 1))
@@ -382,6 +396,18 @@ class AntiFateApp(ctk.CTk):
                     "<KeyRelease>",
                     lambda e, k=key: self._on_arena_combo_key(k, e),
                 )
+                for virtual_event in (
+                    "<<Paste>>",
+                    "<<Cut>>",
+                    "<<Clear>>",
+                    "<<Undo>>",
+                    "<<Redo>>",
+                ):
+                    combo._entry.bind(
+                        virtual_event,
+                        lambda _e, k=key: self._on_arena_virtual_edit(k),
+                        add="+",
+                    )
                 combo._entry.bind(
                     "<Button-1>",
                     lambda e, k=key: self._on_arena_combo_click(k),
@@ -485,7 +511,7 @@ class AntiFateApp(ctk.CTk):
             corner_radius=5,
             fg_color=Colors.BORDER,
             text_color=Colors.MUTED_FG,
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
         )
         self.arena_summary_badge.pack(side="left")
 
@@ -505,7 +531,7 @@ class AntiFateApp(ctk.CTk):
                 text=label,
                 width=72,
                 anchor="w",
-                font=(AppConfig.FONT_FAMILY, 10, "bold"),
+                font=(AppConfig.FONT_FAMILY, 12, "bold"),
                 text_color=Colors.MUTED_FG,
             ).pack(side="left")
             tag = ctk.CTkLabel(
@@ -516,7 +542,7 @@ class AntiFateApp(ctk.CTk):
                 corner_radius=4,
                 fg_color=Colors.BORDER,
                 text_color=Colors.MUTED_FG,
-                font=(AppConfig.FONT_FAMILY, 9, "bold"),
+                font=(AppConfig.FONT_FAMILY, 11, "bold"),
             )
             tag.pack(side="right")
             value = ctk.CTkLabel(
@@ -525,7 +551,7 @@ class AntiFateApp(ctk.CTk):
                 anchor="w",
                 justify="left",
                 wraplength=360,
-                font=(AppConfig.FONT_FAMILY, 10),
+                font=(AppConfig.FONT_FAMILY, 12),
                 text_color=Colors.FG,
             )
             value.pack(side="left", fill="x", expand=True, padx=(4, 6))
@@ -541,7 +567,7 @@ class AntiFateApp(ctk.CTk):
             anchor="w",
             justify="left",
             wraplength=360,
-            font=(AppConfig.FONT_FAMILY, 10),
+            font=(AppConfig.FONT_FAMILY, 12),
             text_color=Colors.MUTED_FG,
         )
         self.arena_summary_note.pack(fill="x", padx=10, pady=(2, 7))
@@ -749,22 +775,8 @@ class AntiFateApp(ctk.CTk):
         return "Tướng đã lưu"
 
     def _arena_field_is_draft(self, key: str) -> bool:
-        """Return True when the entry differs from its last committed value."""
-        text = self.arena_combos[key].get().strip()
-        if key in OPTIONAL_PICK_FIELDS and text in ("", NO_PICK_LABEL, NOT_SET_LABEL):
-            return False
-        cid = champion_id(self._arena_loaded_ids.get(key, 0))
-        if cid == 0:
-            return text not in ("", NOT_SET_LABEL)
-        saved_values = {
-            self._arena_display_for_id(cid, key),
-            self._arena_id_to_display.get(cid, ""),
-            self._arena_cached_names.get(cid, ""),
-            f"(ID {cid} — chờ client xác minh)",
-            f"(ID {cid} — không còn trong client)",
-            "Tướng đã lưu",
-        }
-        return text not in saved_values
+        """Return True only while the user has unconfirmed text in the field."""
+        return key in self._arena_draft_keys
 
     def _arena_feature_enabled_for_field(self, key: str) -> bool:
         """Return whether the feature owning this field is enabled."""
@@ -1113,6 +1125,7 @@ class AntiFateApp(ctk.CTk):
             chain[order[key]] = cid
             config_manager.set("arena_pick_chain", chain)
         self._arena_loaded_ids[key] = cid
+        self._arena_draft_keys.discard(key)
         self._arena_field_error_visible[key] = False
         if cid == 0 and disp in ("", NO_PICK_LABEL, NOT_SET_LABEL):
             combo.set(NO_PICK_LABEL if key in OPTIONAL_PICK_FIELDS else NOT_SET_LABEL)
@@ -1180,7 +1193,7 @@ class AntiFateApp(ctk.CTk):
         win.configure(bg=Colors.BORDER)
         lb = tk.Listbox(
             win,
-            font=(AppConfig.FONT_FAMILY, 11),
+            font=(AppConfig.FONT_FAMILY, 13),
             bg=Colors.SECONDARY,
             fg=Colors.FG,
             selectbackground=Colors.BLUE,
@@ -1281,12 +1294,17 @@ class AntiFateApp(ctk.CTk):
                 # Re-filtering here would reset it to index zero.
                 return
             self._arena_field_error_visible[key] = False
+            self._arena_draft_keys.add(key)
             if key in OPTIONAL_PICK_FIELDS and not self.arena_combos[key].get().strip():
                 self._on_arena_combo(key)
             self._update_suggest(key)
             self._schedule_arena_validation()
         except Exception:
             pass
+
+    def _on_arena_virtual_edit(self, key: str) -> None:
+        """Mark clipboard/IME edits as draft even without a KeyRelease."""
+        self._on_arena_combo_key(key)
 
     def _on_arena_combo_click(self, key: str) -> None:
         """Click vào ô → chỉ để gõ sửa (gợi ý tự hiện khi gõ ký tự đầu)."""
@@ -1446,7 +1464,7 @@ class AntiFateApp(ctk.CTk):
             ctk.CTkLabel(
                 frame,
                 text=text,
-                font=(AppConfig.FONT_FAMILY, 11, "bold"),
+                font=(AppConfig.FONT_FAMILY, 13, "bold"),
                 text_color=color,
             ).pack(padx=14, pady=8)
             win.update_idletasks()
@@ -1492,14 +1510,27 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             scale_frame,
             text="🔍 UI Scale",
-            font=(AppConfig.FONT_FAMILY, 10),
+            font=(AppConfig.FONT_FAMILY, 12),
             text_color=Colors.MUTED_FG,
         ).pack(side="left", padx=(0, 4))
 
-        scale_options = ["80%", "90%", "100%", "110%", "120%", "130%", "140%", "150%", "160%", "175%", "200%"]
+        scale_options = [
+            "80%",
+            "90%",
+            "100%",
+            "110%",
+            "120%",
+            "125%",
+            "130%",
+            "140%",
+            "150%",
+            "160%",
+            "175%",
+            "200%",
+        ]
         current_scale = config_manager.get("ui_scale")
         if current_scale is None:
-            current_scale = 1.25
+            current_scale = DefaultConfig.UI_SCALE
         current_scale = max(0.8, min(2.0, float(current_scale)))
         current_display = f"{int(current_scale * 100)}%"
         if current_display not in scale_options:
@@ -1516,7 +1547,7 @@ class AntiFateApp(ctk.CTk):
             button_hover_color=Colors.RING,
             dropdown_fg_color=Colors.CARD,
             dropdown_hover_color=Colors.SECONDARY,
-            font=(AppConfig.FONT_FAMILY, 10),
+            font=(AppConfig.FONT_FAMILY, 12),
         )
         self.scale_dropdown.set(current_display)
         self.scale_dropdown.pack(side="left")
@@ -1554,14 +1585,14 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             author_frame,
             text="Created by ",
-            font=(AppConfig.FONT_FAMILY, 11),
+            font=(AppConfig.FONT_FAMILY, 13),
             text_color=Colors.MUTED_FG,
         ).pack(side="left")
 
         self.author_link = ctk.CTkLabel(
             author_frame,
             text="Gohans",
-            font=(AppConfig.FONT_FAMILY, 11, "bold"),
+            font=(AppConfig.FONT_FAMILY, 13, "bold"),
             text_color=Colors.MUTED_FG,
             cursor="hand2",
         )
@@ -1580,7 +1611,7 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             footer,
             text="v2.0",
-            font=("JetBrains Mono", 10, "bold"),
+            font=("JetBrains Mono", 12, "bold"),
             text_color=Colors.MUTED_FG,
         ).pack(side="right", padx=(0, 8))
         self._create_ui_scale_widget(footer)
@@ -1594,7 +1625,7 @@ class AntiFateApp(ctk.CTk):
             corner_radius=5,
             fg_color=Colors.RED,
             text_color=Colors.BG,
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
         )
         self._footer_lcu_badge.pack(side="right", padx=(0, 8))
 
@@ -1674,14 +1705,14 @@ class AntiFateApp(ctk.CTk):
             log_header,
             text="Hoạt động gần đây",
             anchor="w",
-            font=(AppConfig.FONT_FAMILY, 10, "bold"),
+            font=(AppConfig.FONT_FAMILY, 12, "bold"),
             text_color=Colors.FG,
         ).pack(side="left")
         self.arena_live_count_label = ctk.CTkLabel(
             log_header,
             text="Chưa có hoạt động",
             anchor="e",
-            font=(AppConfig.FONT_FAMILY, 9, "bold"),
+            font=(AppConfig.FONT_FAMILY, 11, "bold"),
             text_color=Colors.MUTED_FG,
         )
         self.arena_live_count_label.pack(side="right")
@@ -1694,7 +1725,7 @@ class AntiFateApp(ctk.CTk):
             self.arena_live_rows,
             text="Chưa có hoạt động.",
             anchor="w",
-            font=(AppConfig.FONT_FAMILY, 10),
+            font=(AppConfig.FONT_FAMILY, 12),
             text_color=Colors.MUTED_FG,
         ).pack(fill="x", padx=4, pady=(0, 2))
 
@@ -1711,7 +1742,7 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             dimmer_row,
             text="Ghost Dimmer",
-            font=(AppConfig.FONT_FAMILY, 12),
+            font=(AppConfig.FONT_FAMILY, 14),
             text_color=Colors.FG,
         ).pack(side="left")
 
@@ -1735,7 +1766,7 @@ class AntiFateApp(ctk.CTk):
             values=["🎮 Gaming", "🌐 Browsing"],
             variable=self.dimmer_mode_var,
             command=self._on_dimmer_mode_changed,
-            font=(AppConfig.FONT_FAMILY, 10),
+            font=(AppConfig.FONT_FAMILY, 12),
             fg_color=Colors.SECONDARY,
             selected_color=Colors.BLUE,
             selected_hover_color=Colors.BLUE,
@@ -1771,7 +1802,7 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             auto_dimmer_row,
             text="Auto switch to Gaming mode",
-            font=(AppConfig.FONT_FAMILY, 11),
+            font=(AppConfig.FONT_FAMILY, 13),
             text_color=Colors.FG,
         ).pack(side="left")
 
@@ -1801,7 +1832,7 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             header,
             text="🤖 LCU Automation",
-            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            font=(AppConfig.FONT_FAMILY, 15, "bold"),
             text_color=Colors.PRIMARY,
         ).pack(side="left")
 
@@ -1812,7 +1843,7 @@ class AntiFateApp(ctk.CTk):
         ctk.CTkLabel(
             accept_row,
             text="Auto Accept Match",
-            font=(AppConfig.FONT_FAMILY, 12),
+            font=(AppConfig.FONT_FAMILY, 14),
             text_color=Colors.FG,
         ).pack(side="left")
 
@@ -1829,12 +1860,12 @@ class AntiFateApp(ctk.CTk):
 
         # Startup Toggle
         startup_row = ctk.CTkFrame(pref_card, fg_color="transparent")
-        startup_row.pack(fill="x", padx=15, pady=(6, 12))
+        startup_row.pack(fill="x", padx=15, pady=(6, 4))
 
         ctk.CTkLabel(
             startup_row,
             text="Launch on Startup",
-            font=(AppConfig.FONT_FAMILY, 12),
+            font=(AppConfig.FONT_FAMILY, 14),
             text_color=Colors.FG,
         ).pack(side="left")
 
@@ -1849,6 +1880,32 @@ class AntiFateApp(ctk.CTk):
         )
         self.startup_switch.pack(side="right")
 
+        for index, spec in enumerate(DISCORD_NOTIFICATION_SPECS):
+            variable = getattr(self, f"{spec.config_key}_var")
+            row = ctk.CTkFrame(pref_card, fg_color="transparent")
+            row.pack(
+                fill="x",
+                padx=15,
+                pady=(6 if index == 0 else 2, 12 if index == 2 else 2),
+            )
+            ctk.CTkLabel(
+                row,
+                text=spec.label,
+                font=(AppConfig.FONT_FAMILY, 14),
+                text_color=Colors.FG,
+            ).pack(side="left")
+            ctk.CTkSwitch(
+                row,
+                text="",
+                width=40,
+                variable=variable,
+                command=lambda current_spec=spec, var=variable: self._toggle_discord_notification(
+                    current_spec, var
+                ),
+                progress_color=Colors.GREEN,
+                fg_color=Colors.SECONDARY,
+            ).pack(side="right")
+
     def _create_activity_beacon(self, parent) -> None:
         """Create a compact, high-signal runtime status beacon."""
         self.activity_beacon = ctk.CTkFrame(
@@ -1862,7 +1919,7 @@ class AntiFateApp(ctk.CTk):
             text="●",
             width=22,
             anchor="w",
-            font=(AppConfig.FONT_FAMILY, 16, "bold"),
+            font=(AppConfig.FONT_FAMILY, 18, "bold"),
             text_color=Colors.MUTED_FG,
         )
         self.status_beacon_dot.pack(side="left")
@@ -1871,7 +1928,7 @@ class AntiFateApp(ctk.CTk):
             self.activity_beacon,
             text=UIStatus.READY,
             anchor="w",
-            font=(AppConfig.FONT_FAMILY, 12, "bold"),
+            font=(AppConfig.FONT_FAMILY, 14, "bold"),
             text_color=Colors.FG,
         )
         self.status_label.pack(side="left", fill="x", expand=True, padx=(4, 8))
@@ -1905,7 +1962,7 @@ class AntiFateApp(ctk.CTk):
         self.start_btn = ctk.CTkButton(
             btn_frame,
             text="START BOT",
-            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            font=(AppConfig.FONT_FAMILY, 15, "bold"),
             height=40,
             fg_color=Colors.PRIMARY,
             text_color=Colors.PRIMARY_FG,
@@ -1918,7 +1975,7 @@ class AntiFateApp(ctk.CTk):
         self.stop_btn = ctk.CTkButton(
             btn_frame,
             text="STOP",
-            font=(AppConfig.FONT_FAMILY, 13, "bold"),
+            font=(AppConfig.FONT_FAMILY, 15, "bold"),
             height=40,
             fg_color=Colors.RED,
             text_color=Colors.PRIMARY_FG,
@@ -1929,8 +1986,10 @@ class AntiFateApp(ctk.CTk):
         )
         self.stop_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
-    def _on_dimmer_mode_changed(self, mode: str) -> None:
+    def _on_dimmer_mode_changed(self, mode: str, automatic: bool = False) -> None:
         """Handle dimmer mode switch between Gaming and Browsing."""
+        if automatic and not self._automatic_dimmer_allowed():
+            return
         # Save current slider value to the current mode before switching
         current_slider_val = int(self.dimmer_slider.get())
         old_mode = config_manager.get("dimmer_mode")
@@ -1975,9 +2034,26 @@ class AntiFateApp(ctk.CTk):
 
     def _automatic_dimmer_allowed(self) -> bool:
         """Single gate for every automatic dimmer write."""
-        return bool(config_manager.get("auto_dimmer_switch_enabled")) and bool(
-            self.dimmer_enabled_var.get()
+        return (
+            config_manager.get("auto_dimmer_switch_enabled") is True
+            and self.dimmer_enabled_var.get() is True
         )
+
+    def _apply_automatic_mode(self, mode: str) -> None:
+        """Apply a deferred automatic mode change only if gates still allow it."""
+        if not self._automatic_dimmer_allowed():
+            self._skip_dimmer_save = False
+            return
+        self.dimmer_mode_segment.set(mode)
+        self._on_dimmer_mode_changed(mode, automatic=True)
+
+    def _apply_automatic_brightness(self, level: int) -> None:
+        """Apply deferred automatic brightness only if gates still allow it."""
+        if not self._automatic_dimmer_allowed():
+            self._dimmer_reset_visual = False
+            return
+        self.dimmer_slider.set(float(level))
+        self.dimmer.set_brightness(level)
 
     def switch_to_gaming_mode(self) -> None:
         """Callback to switch to Gaming dimmer mode (called by bot on champ select)."""
@@ -2003,8 +2079,7 @@ class AntiFateApp(ctk.CTk):
 
             # Set flag to prevent _on_dimmer_mode_changed from re-saving (would save wrong value)
             self._skip_dimmer_save = True
-            self.after(0, lambda: self.dimmer_mode_segment.set("🎮 Gaming"))
-            self.after(10, lambda: self._on_dimmer_mode_changed("🎮 Gaming"))
+            self.after(10, lambda: self._apply_automatic_mode("🎮 Gaming"))
         else:
             # FIX (v1.15 review): mode is already gaming - re-apply the
             # configured gaming value anyway. reset_dimmer() (success
@@ -2017,9 +2092,7 @@ class AntiFateApp(ctk.CTk):
                 gv = 100
             gv = int(max(50, min(100, int(gv))))
             self._dimmer_reset_visual = False
-            self.after(0, lambda: self.dimmer_slider.set(float(gv)))
-            if self.dimmer_enabled_var.get():
-                self.after(0, lambda: self.dimmer.set_brightness(gv))
+            self.after(0, lambda: self._apply_automatic_brightness(gv))
             logger.info(
                 f"Champ select detected - re-applying Gaming dimmer "
                 f"(already in gaming mode, {gv}%)"
@@ -2043,8 +2116,7 @@ class AntiFateApp(ctk.CTk):
                 config_manager.set("dimmer_gaming_value", int(gaming_val))
 
             self._skip_dimmer_save = True
-            self.after(0, lambda: self.dimmer_mode_segment.set("🌐 Browsing"))
-            self.after(10, lambda: self._on_dimmer_mode_changed("🌐 Browsing"))
+            self.after(10, lambda: self._apply_automatic_mode("🌐 Browsing"))
         else:
             # Đã ở browsing — re-apply giá trị (phòng reset_dimmer đã set 100)
             bv = config_manager.get("dimmer_browsing_value")
@@ -2052,9 +2124,7 @@ class AntiFateApp(ctk.CTk):
                 bv = 100
             bv = int(max(50, min(100, int(bv))))
             self._dimmer_reset_visual = False
-            self.after(0, lambda: self.dimmer_slider.set(float(bv)))
-            if self.dimmer_enabled_var.get():
-                self.after(0, lambda: self.dimmer.set_brightness(bv))
+            self.after(0, lambda: self._apply_automatic_brightness(bv))
             logger.info(f"Match ended - re-applying Browsing dimmer ({bv}%)")
 
     def _on_window_configure(self, event) -> None:
@@ -2187,6 +2257,11 @@ class AntiFateApp(ctk.CTk):
             saved_auto_accept = True
         self.auto_accept_enabled_var.set(saved_auto_accept)
 
+        for spec in DISCORD_NOTIFICATION_SPECS:
+            variable = getattr(self, f"{spec.config_key}_var")
+            variable.set(bool(config_manager.get(spec.config_key)))
+            self.notifier.set_event_enabled(spec.event_name, variable.get())
+
         # Apply settings immediately
         self.toggle_dimmer(save=False)
         logger.info(f"Dimmer backend active: {self.dimmer.backend_name}")
@@ -2201,6 +2276,16 @@ class AntiFateApp(ctk.CTk):
         is_enabled = self.auto_accept_enabled_var.get()
         config_manager.set("auto_accept_enabled", is_enabled)
         logger.info(f"Auto Accept Match toggled: {is_enabled}")
+
+    def _toggle_discord_notification(
+        self,
+        spec: NotificationSpec,
+        variable,
+    ) -> None:
+        is_enabled = bool(variable.get())
+        config_manager.set(spec.config_key, is_enabled)
+        self.notifier.set_event_enabled(spec.event_name, is_enabled)
+        logger.info(f"Discord notification toggled: {spec.event_name}={is_enabled}")
 
     def _toggle_auto_dimmer_switch(self) -> None:
         """Handle auto dimmer switch toggle (auto-switch to Gaming mode on champ select)."""
@@ -2429,7 +2514,7 @@ class AntiFateApp(ctk.CTk):
                 self.arena_live_rows,
                 text="Chưa có hoạt động.",
                 anchor="w",
-                font=(AppConfig.FONT_FAMILY, 10),
+                font=(AppConfig.FONT_FAMILY, 12),
                 text_color=Colors.MUTED_FG,
             ).pack(fill="x", padx=4, pady=(0, 2))
             return
@@ -2460,7 +2545,7 @@ class AntiFateApp(ctk.CTk):
                 text=timestamp,
                 width=50,
                 anchor="w",
-                font=(AppConfig.FONT_FAMILY, 9),
+                font=(AppConfig.FONT_FAMILY, 11),
                 text_color=Colors.MUTED_FG,
             ).pack(side="left", padx=(6, 0))
             ctk.CTkLabel(
@@ -2471,7 +2556,7 @@ class AntiFateApp(ctk.CTk):
                 corner_radius=4,
                 fg_color=event_color,
                 text_color=Colors.BG,
-                font=(AppConfig.FONT_FAMILY, 9, "bold"),
+                font=(AppConfig.FONT_FAMILY, 11, "bold"),
             ).pack(side="left", padx=(2, 6))
             ctk.CTkLabel(
                 row,
@@ -2479,7 +2564,7 @@ class AntiFateApp(ctk.CTk):
                 anchor="w",
                 justify="left",
                 wraplength=wraplength,
-                font=(AppConfig.FONT_FAMILY, 10),
+                font=(AppConfig.FONT_FAMILY, 12),
                 text_color=Colors.FG,
             ).pack(side="left", fill="x", expand=True, padx=(0, 6))
 
@@ -2551,7 +2636,7 @@ class AntiFateApp(ctk.CTk):
 
     def _dimmer_watchdog_tick(self) -> None:
         try:
-            if self.dimmer_enabled_var.get():
+            if self._automatic_dimmer_allowed():
                 target = int(self.dimmer_slider.get())
                 if not self.dimmer.verify(target):
                     # Re-apply only after 2 consecutive drifts (~10s): a
@@ -2563,7 +2648,7 @@ class AntiFateApp(ctk.CTk):
                             f"Dimmer watchdog: display drifted from {target}% - "
                             f"re-applying ({self.dimmer.backend_name})"
                         )
-                        self.dimmer.set_brightness(target)
+                        self._apply_automatic_brightness(target)
                 else:
                     self._watchdog_drift_count = 0
         except Exception as e:
@@ -2582,8 +2667,7 @@ class AntiFateApp(ctk.CTk):
         logger.info("Bot success confirmed. Resetting dimmer to 100% (visual only).")
         # Set flag to prevent _on_dimmer_mode_changed from saving this fake 100 value
         self._dimmer_reset_visual = True
-        self.after(0, lambda: self.dimmer_slider.set(100))
-        self.after(0, lambda: self.dimmer.set_brightness(100))
+        self.after(0, lambda: self._apply_automatic_brightness(100))
 
     def _set_arena_automation_enabled(self, enabled: bool) -> None:
         """Set the master gate for Arena ban/pick actions."""
@@ -2667,6 +2751,7 @@ class AntiFateApp(ctk.CTk):
                 self.bot.on_stop_callback = None
                 self.bot.stop()
             self.arena_watcher.stop()
+            self.notifier.close()
 
             if self.dimmer:
                 # Reset brightness to 100% before exit

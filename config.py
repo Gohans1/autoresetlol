@@ -76,14 +76,17 @@ class BotConfig:
     auto_accept_enabled: bool = DefaultConfig.AUTO_ACCEPT_ENABLED
     auto_ban_enabled: bool = DefaultConfig.AUTO_BAN_ENABLED
     auto_pick_enabled: bool = DefaultConfig.AUTO_PICK_ENABLED
+    discord_notify_ban: bool = DefaultConfig.DISCORD_NOTIFY_BAN
+    discord_notify_pick: bool = DefaultConfig.DISCORD_NOTIFY_PICK
+    discord_notify_in_game: bool = DefaultConfig.DISCORD_NOTIFY_IN_GAME
     arena_ban_champ: int = DefaultConfig.ARENA_BAN_CHAMP
     arena_pick_chain: List[int] = field(
         default_factory=lambda: list(DefaultConfig.ARENA_PICK_CHAIN)
     )
 
     # App UX
-    window_geometry: str = "360x540"
-    ui_scale: float = 1.0  # UI zoom scale (0.8 - 1.5)
+    window_geometry: str = AppConfig.GEOMETRY
+    ui_scale: float = DefaultConfig.UI_SCALE  # UI zoom scale (0.8 - 2.0)
     # Arena MRU — {field: [champion_id,...]} — tướng chọn gần nhất mỗi field
     # (tối đa 5) để gợi ý lên đầu khi mở dropdown
     arena_recent: Dict[str, List[int]] = field(default_factory=dict)

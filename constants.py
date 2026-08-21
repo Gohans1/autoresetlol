@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import List, Dict, Tuple
 import os
 import sys
@@ -83,9 +84,34 @@ class DefaultConfig:
     AUTO_ACCEPT_ENABLED: bool = True  # Auto-accept match khi có trận (LCU)
     AUTO_BAN_ENABLED: bool = False  # Arena: auto-ban preset champion
     AUTO_PICK_ENABLED: bool = False  # Arena: auto-pick main -> backups (hover only)
+    DISCORD_NOTIFY_BAN: bool = False
+    DISCORD_NOTIFY_PICK: bool = False
+    DISCORD_NOTIFY_IN_GAME: bool = False
     ARENA_BAN_CHAMP: int = 0  # Champion id to ban in Arena (0 = unset)
     ARENA_PICK_CHAIN: List[int] = [0, 0, 0, 0]  # Main + 3 backups, priority order
-    UI_SCALE: float = 1.0  # UI zoom scale (0.8 - 1.5)
+    UI_SCALE: float = 1.25  # UI zoom scale (0.8 - 2.0)
+
+
+@dataclass(frozen=True)
+class NotificationSpec:
+    config_key: str
+    event_name: str
+    label: str
+
+
+DISCORD_EVENT_BAN = "arena.ban_verified"
+DISCORD_EVENT_PICK = "arena.pick_verified"
+DISCORD_EVENT_IN_GAME = "arena.in_progress"
+
+DISCORD_NOTIFICATION_SPECS = (
+    NotificationSpec("discord_notify_ban", DISCORD_EVENT_BAN, "Discord: báo Ban"),
+    NotificationSpec("discord_notify_pick", DISCORD_EVENT_PICK, "Discord: báo Pick"),
+    NotificationSpec(
+        "discord_notify_in_game",
+        DISCORD_EVENT_IN_GAME,
+        "Discord: báo vào trận",
+    ),
+)
 
 
 class UIStatus:

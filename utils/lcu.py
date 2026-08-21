@@ -68,6 +68,7 @@ class LCUClient:
         self._base: Optional[str] = None
         self._auth: Optional[str] = None
         self._lockfile_mtime: Optional[float] = None
+        self._connection_generation: int = 0
         self._last_err_log: float = 0.0
         # Lock: connect()/request() chạy từ nhiều thread (watcher + GUI fetch)
         self._lock = threading.Lock()
@@ -83,8 +84,10 @@ class LCUClient:
         không phải quét lại process list mỗi lần. Khi thất bại → backoff
         5s trước khi quét lại.
         """
-        if time.time() < self._next_connect_at:
-            return self._base is not None
+        with self._lock:
+            if time.time() < self._next_connect_at:
+                return self._base is not None
+            attempt_generation = self._connection_generation
         try:
             for proc in psutil.process_iter(["name", "exe"]):
                 try:
@@ -110,22 +113,35 @@ class LCUClient:
                         self._base = f"{protocol}://127.0.0.1:{port}"
                         self._auth = _basic_auth("riot", password)
                         self._lockfile_mtime = mtime
+                        self._connection_generation += 1
                     logger.info(f"LCU connected: {self._base}")
                     return True
                 except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
                     continue
         except Exception as e:
             logger.error(f"LCU connect failed: {e}")
-        with self._lock:
-            self._base = None
-            self._auth = None
-        self._next_connect_at = time.time() + 5
+        self._invalidate_connection(expected_generation=attempt_generation)
         return False
 
     @property
     def connected(self) -> bool:
         with self._lock:
             return self._base is not None
+
+    def _invalidate_connection(self, expected_generation: Optional[int] = None) -> bool:
+        """Clear stale credentials and delay the next process scan."""
+        with self._lock:
+            if (
+                expected_generation is not None
+                and self._connection_generation != expected_generation
+            ):
+                return False
+            self._base = None
+            self._auth = None
+            self._lockfile_mtime = None
+            self._connection_generation += 1
+            self._next_connect_at = time.time() + 5
+        return True
 
     # ---- HTTP ----
 
@@ -144,12 +160,18 @@ class LCUClient:
         """
         with self._lock:
             base, auth = self._base, self._auth
+            connection_generation = self._connection_generation
         if not base or not auth:
             if not self.connect():
+                if raise_on_error:
+                    raise LCUError(f"LCU {method} {path} unavailable")
                 return None
             with self._lock:
                 base, auth = self._base, self._auth
+                connection_generation = self._connection_generation
             if not base or not auth:
+                if raise_on_error:
+                    raise LCUError(f"LCU {method} {path} unavailable")
                 return None
         url = base + path
         data = json.dumps(body).encode() if body is not None else None
@@ -165,10 +187,7 @@ class LCUClient:
             if e.code == 401:
                 # Auth hết hạn / lockfile cũ (client restart cùng port, mtime
                 # trùng) → reset kết nối, lần sau tự tìm lockfile + auth mới.
-                with self._lock:
-                    self._base = None
-                    self._auth = None
-                self._next_connect_at = time.time() + 5
+                self._invalidate_connection(expected_generation=connection_generation)
                 logger.warning(
                     f"LCU {method} {path} -> HTTP 401 (auth stale) - "
                     "reconnecting..."
@@ -181,10 +200,7 @@ class LCUClient:
             return None
         except Exception as e:
             # Client tắt / khởi động lại → mất kết nối, lần sau tự tìm lại.
-            with self._lock:
-                self._base = None
-                self._auth = None
-            self._next_connect_at = time.time() + 5
+            self._invalidate_connection(expected_generation=connection_generation)
             if raise_on_error:
                 raise LCUError(f"LCU {method} {path} failed: {e}") from e
             self._log_rate_limited(f"LCU {method} {path} failed: {e}")

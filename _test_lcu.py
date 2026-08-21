@@ -1,6 +1,10 @@
 """Focused tests for LCU queue mode normalization."""
+import io
 import sys
+import urllib.error
+from email.message import Message
 
+import utils.lcu as lcu_module
 from utils.lcu import LCUClient, normalize_game_mode
 
 
@@ -87,6 +91,114 @@ class RosterResultClient(LCUClient):
 
 check("T7: roster request lỗi → None", RosterResultClient(None).owned_champions_result() is None)
 check("T8: roster response rỗng hợp lệ → []", RosterResultClient([]).owned_champions_result() == [])
+
+
+class DisconnectedClient(LCUClient):
+    def connect(self):
+        return False
+
+
+disconnected = DisconnectedClient()
+check(
+    "T9: mất kết nối → accept thất bại",
+    disconnected.accept_match() is False,
+)
+check(
+    "T9b: mất kết nối → PATCH thất bại",
+    disconnected.set_action_champion(7, 53) is False,
+)
+
+
+class FakeResponse:
+    def __init__(self, payload=b""):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self.payload
+
+
+def ready_client():
+    client = LCUClient()
+    client._base = "https://127.0.0.1:1234"
+    client._auth = "Basic old"
+    client._connection_generation = 7
+    return client
+
+
+original_urlopen = lcu_module.urllib.request.urlopen
+try:
+    lcu_module.urllib.request.urlopen = lambda *_args, **_kwargs: FakeResponse()
+    empty_body = ready_client()
+    check("T10: request 204 rỗng là response hợp lệ", empty_body.request("GET", "/empty") is None)
+
+    def raise_404(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://127.0.0.1:1234/missing",
+            404,
+            "missing",
+            Message(),
+            io.BytesIO(),
+        )
+
+    lcu_module.urllib.request.urlopen = raise_404
+    not_found = ready_client()
+    check("T10b: 404 mềm trả None", not_found.request("GET", "/missing") is None)
+    strict_404 = ready_client()
+    try:
+        strict_404.request("GET", "/missing", raise_on_error=True)
+    except lcu_module.LCUError:
+        strict_404_ok = True
+    else:
+        strict_404_ok = False
+    check("T10c: 404 strict ném LCUError", strict_404_ok)
+
+    def raise_401(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://127.0.0.1:1234/auth",
+            401,
+            "unauthorized",
+            Message(),
+            io.BytesIO(),
+        )
+
+    lcu_module.urllib.request.urlopen = raise_401
+    unauthorized = ready_client()
+    unauthorized.request("GET", "/auth")
+    check("T10d: 401 invalidate credentials", not unauthorized.connected)
+
+    def raise_transport(*_args, **_kwargs):
+        raise OSError("client restarted")
+
+    lcu_module.urllib.request.urlopen = raise_transport
+    transport = ready_client()
+    transport.request("GET", "/gone")
+    check("T10e: transport error invalidate credentials", not transport.connected)
+
+    stale = ready_client()
+
+    def stale_request(*_args, **_kwargs):
+        with stale._lock:
+            stale._base = "https://127.0.0.1:5678"
+            stale._auth = "Basic new"
+            stale._connection_generation += 1
+        raise OSError("old request failed")
+
+    lcu_module.urllib.request.urlopen = stale_request
+    stale.request("GET", "/race")
+    check(
+        "T10f: stale request không xóa connection mới",
+        stale.connected
+        and stale._base == "https://127.0.0.1:5678"
+        and stale._auth == "Basic new",
+    )
+finally:
+    lcu_module.urllib.request.urlopen = original_urlopen
 
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} test thất bại: {FAILURES}")

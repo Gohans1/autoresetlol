@@ -11,6 +11,7 @@ from arena_config import (
 from config import BotConfig
 import gui
 from gui import AntiFateApp
+from constants import AppConfig, DefaultConfig, DISCORD_NOTIFICATION_SPECS
 
 
 FAILURES = []
@@ -52,6 +53,62 @@ check(
     and legacy_config.arena_recent == {"ban": [53]}
     and legacy_config.arena_champion_names == {"53": "Blitzcrank"},
     str(legacy_config),
+)
+default_values = BotConfig.from_dict({})
+check(
+    "T1d: default geometry và UI scale có một owner",
+    default_values.window_geometry == AppConfig.GEOMETRY
+    and default_values.ui_scale == DefaultConfig.UI_SCALE == 1.25,
+    str(default_values),
+)
+default_config = BotConfig.from_dict({})
+check(
+    "T1e: Discord notifications mặc định tắt",
+    not default_config.discord_notify_ban
+    and not default_config.discord_notify_pick
+    and not default_config.discord_notify_in_game,
+    str(default_config),
+)
+
+
+class NotificationFakeVar:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+
+class NotificationFakeNotifier:
+    def __init__(self):
+        self.calls = []
+
+    def set_event_enabled(self, event, enabled):
+        self.calls.append((event, enabled))
+
+
+fake_app = AntiFateApp.__new__(AntiFateApp)
+fake_notifier = NotificationFakeNotifier()
+setattr(fake_app, "notifier", fake_notifier)
+fake_var = NotificationFakeVar(True)
+saved_notification_config = []
+original_config_set = gui.config_manager.set
+gui.config_manager.set = lambda key, value, save=True: saved_notification_config.append(
+    (key, value)
+)
+try:
+    AntiFateApp._toggle_discord_notification(
+        fake_app,
+        DISCORD_NOTIFICATION_SPECS[0],
+        fake_var,
+    )
+finally:
+    gui.config_manager.set = original_config_set
+check(
+    "T1f: toggle Discord lưu config và áp dụng ngay",
+    saved_notification_config == [("discord_notify_ban", True)]
+    and fake_notifier.calls == [("arena.ban_verified", True)],
+    str((saved_notification_config, fake_notifier.calls)),
 )
 
 issues = validate_arena_config(
@@ -177,6 +234,17 @@ class FakeDimmer:
         self.calls.append(value)
 
 
+class FakeSlider:
+    def __init__(self, value=100):
+        self.value = value
+
+    def set(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+
 class FakeEvent:
     def __init__(self, widget):
         self.widget = widget
@@ -218,6 +286,7 @@ app._arena_loaded_ids = {"ban": 0, "main": 0, "b1": 60084, "b2": 0, "b3": 0}
 app._arena_id_to_display = {}
 app._arena_cached_names = {}
 app._arena_owned_ids = set()
+app._arena_draft_keys = set()
 app.auto_ban_var = FakeVar(False)
 app.auto_pick_var = FakeVar(True)
 issues = AntiFateApp._arena_draft_issues(app)
@@ -225,6 +294,12 @@ check(
     "T8a: backup trống dù có giá trị cũ → không chặn START",
     not issues,
     str(issues),
+)
+app._arena_draft_keys.add("b1")
+check(
+    "T8a2: draft chỉ đúng field đang gõ",
+    AntiFateApp._arena_field_is_draft(app, "b1")
+    and not AntiFateApp._arena_field_is_draft(app, "main"),
 )
 
 app = AntiFateApp.__new__(AntiFateApp)
@@ -273,6 +348,7 @@ check("T8e: backup trống được commit thành Không", cleared == ["b1", "b3
 app = AntiFateApp.__new__(AntiFateApp)
 app.arena_combos = {"b1": FakeValueCombo("")}
 app._arena_field_error_visible = {"b1": False}
+app._arena_draft_keys = set()
 app._on_arena_combo = lambda key: app.arena_combos[key].set(NO_PICK_LABEL)
 app._update_suggest = lambda key: None
 app._refresh_arena_validation = lambda: None
@@ -299,6 +375,27 @@ app._arena_field_error_visible = {"ban": True}
 for key_name in ("Up", "Down", "Left", "Right"):
     AntiFateApp._on_arena_combo_key(app, "ban", FakeKeyEvent(key_name))
 check("T10: navigation key không reset suggestion", True)
+
+# ============ T10b: virtual edit cũng là draft ============
+app = AntiFateApp.__new__(AntiFateApp)
+app.arena_combos = {"b1": FakeValueCombo("Yasuo")}
+app._arena_draft_keys = set()
+app._arena_field_error_visible = {"b1": False}
+app.auto_ban_var = FakeVar(False)
+app.auto_pick_var = FakeVar(True)
+app._update_suggest = lambda _key: None
+app._schedule_arena_validation = lambda: None
+AntiFateApp._on_arena_virtual_edit(app, "b1")
+virtual_draft_issues = AntiFateApp._arena_draft_issues(app)
+check(
+    "T10b: paste/cut/undo không cần KeyRelease vẫn chặn draft",
+    "b1" in app._arena_draft_keys
+    and any(
+        issue.code == "draft" and issue.fields == ("b1",)
+        for issue in virtual_draft_issues
+    ),
+    str(virtual_draft_issues),
+)
 
 # ============ T11: newest Arena event appears first ============
 app = AntiFateApp.__new__(AntiFateApp)
@@ -355,6 +452,38 @@ check(
     "T14: auto dimmer OFF không ghi brightness",
     app.dimmer.calls == [],
     str(app.dimmer.calls),
+)
+gui.config_manager.get = original_get
+
+# ============ T14b: deferred automatic reset re-checks both gates ============
+app = AntiFateApp.__new__(AntiFateApp)
+app.dimmer_enabled_var = FakeVar(True)
+app.dimmer = FakeDimmer()
+app.dimmer_slider = FakeSlider()
+callbacks = []
+app.after = lambda _delay, callback: callbacks.append(callback)
+gui.config_manager.get = lambda key: (
+    True if key == "auto_dimmer_switch_enabled" else original_get(key)
+)
+AntiFateApp.reset_dimmer(app)
+app.dimmer_enabled_var.value = False
+for callback in callbacks:
+    callback()
+check(
+    "T14b: tắt dimmer trước callback → không ghi brightness",
+    app.dimmer.calls == [] and app._dimmer_reset_visual is False,
+    str((app.dimmer.calls, app._dimmer_reset_visual)),
+)
+gui.config_manager.get = lambda key: (
+    "false" if key == "auto_dimmer_switch_enabled" else original_get(key)
+)
+callbacks.clear()
+app.dimmer_enabled_var.value = True
+AntiFateApp.reset_dimmer(app)
+check(
+    "T14c: config truthy giả → không schedule reset",
+    callbacks == [],
+    str(callbacks),
 )
 gui.config_manager.get = original_get
 

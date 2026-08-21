@@ -43,10 +43,10 @@ class AntiFateBot(threading.Thread):
         self.on_stop_callback = on_stop_callback
         self.on_success_callback = on_success_callback
         self.on_champ_select_callback = on_champ_select_callback
+        self._stop_event = threading.Event()
         self.running: bool = False
-        self._accepting: bool = False
+        self._verify_started_at: Optional[float] = None
         self._champ_select_notified: bool = False
-        self.verify_start_time: float = 0.0
         self._error_until: float = 0.0  # giữ status lỗi vài giây, không ghi đè
         self._stop_status: Optional[tuple[str, str]] = None
         self._stop_callback_sent = False
@@ -54,14 +54,14 @@ class AntiFateBot(threading.Thread):
     # ---- vòng lặp ----
 
     def run(self) -> None:
-        self.running = True
-        self._stop_status = None
-        self._stop_callback_sent = False
-        self.update_status_callback(UIStatus.STARTING, "orange")
-        logger.info("Bot LCU started (auto-accept + dodge detect)")
-
         try:
-            while self.running:
+            if self._stop_event.is_set():
+                return
+            self.running = True
+            self.update_status_callback(UIStatus.STARTING, "orange")
+            logger.info("Bot LCU started (auto-accept + dodge detect)")
+
+            while self.running and not self._stop_event.is_set():
                 try:
                     self._tick()
                 except Exception as e:
@@ -69,14 +69,18 @@ class AntiFateBot(threading.Thread):
                     self.update_status_callback(
                         "Đã xảy ra lỗi. Hãy thử lại.", "red"
                     )
-                    time.sleep(2)
-                time.sleep(1)
+                    if self._stop_event.wait(2):
+                        break
+                if self._stop_event.wait(1):
+                    break
         finally:
             self.running = False
             status, color = self._stop_status or (UIStatus.STOPPED, "gray")
             self._notify_stop(status, color)
 
     def _tick(self) -> None:
+        if self._stop_event.is_set() or not self.running:
+            return
         phase = lcu.gameflow_phase()
         if phase is None:
             self.update_status_callback("Chưa kết nối được với League of Legends", "red")
@@ -84,7 +88,7 @@ class AntiFateBot(threading.Thread):
 
         if phase == "ChampSelect":
             # Báo UI một lần, nhưng giữ worker sống để bắt dodge sau ChampSelect.
-            self._accepting = False
+            self._verify_started_at = None
             if not self._champ_select_notified:
                 logger.info("Champ select confirmed via LCU — auto-accept remains active.")
                 self._champ_select_notified = True
@@ -98,12 +102,13 @@ class AntiFateBot(threading.Thread):
         if phase == "InProgress":
             # Giữ auto-accept sống; trận sau có thể xuất hiện sau khi kết thúc
             # game hoặc sau một dodge trong ChampSelect.
+            self._verify_started_at = None
             self._leave_champ_select_if_needed(phase)
             self.update_status_callback(UIStatus.IN_GAME, "green")
             return
 
         self._leave_champ_select_if_needed(phase)
-        if self._accepting:
+        if self._verify_started_at is not None:
             self._handle_verifying(phase)
         else:
             self._handle_searching(phase)
@@ -113,11 +118,19 @@ class AntiFateBot(threading.Thread):
             logger.info(f"Champ Select ended → phase {phase}; auto-accept remains active.")
             self._champ_select_notified = False
 
-    def _handle_searching(self, phase: Optional[str]) -> None:
+    def _handle_searching(
+        self,
+        phase: Optional[str],
+        ready_check: Optional[dict] = None,
+    ) -> None:
+        if self._stop_event.is_set() or not self.running:
+            return
         if time.time() < self._error_until:
             return  # giữ status lỗi vài giây, không ghi đè
 
         search_active = lcu.search_active()
+        if self._stop_event.is_set() or not self.running:
+            return
         if search_active is True:
             status_text = UIStatus.SEARCHING
             status_color = "blue"
@@ -135,37 +148,71 @@ class AntiFateBot(threading.Thread):
         if not config_manager.get("auto_accept_enabled"):
             return
 
-        rc = lcu.ready_check()
+        rc = ready_check if ready_check is not None else lcu.ready_check()
+        if self._stop_event.is_set() or not self.running:
+            return
         if not rc or rc.get("state") != "InProgress":
             return  # chưa có trận
 
         logger.info("MATCH FOUND! Accepting via LCU...")
         self.update_status_callback(UIStatus.MATCH_FOUND, "green")
+        if self._stop_event.is_set() or not self.running:
+            return
         if not lcu.accept_match():
             logger.error("Accept failed via LCU")
             self.update_status_callback("Không thể xác nhận trận — đang thử lại", "red")
             self._error_until = time.time() + 3
             return
 
-        self._accepting = True
-        self.verify_start_time = time.time()
+        if self._stop_event.is_set() or not self.running:
+            return
+        self._verify_started_at = time.time()
         self.update_status_callback(UIStatus.ACCEPTED, "purple")
 
     def _handle_verifying(self, phase: Optional[str]) -> None:
-        elapsed = time.time() - self.verify_start_time
+        if self._verify_started_at is None:
+            return
+        elapsed = time.time() - self._verify_started_at
         remaining = int(max(0, AppConfig.VERIFY_TIMEOUT - elapsed))
         self.update_status_callback(UIStatus.VERIFYING.format(remaining), "purple")
 
         # Dodge / decline: phase quay lại queue sau grace period.
-        if phase in ("Matchmaking", "Lobby") and elapsed >= VERIFY_GRACE:
-            logger.info("Dodge/decline detected (ChampSelect -> queue). Client requeues itself.")
-            self.update_status_callback(UIStatus.DODGED, "orange")
-            self._accepting = False
-            return
+        if phase in ("Matchmaking", "Lobby"):
+            ready_check = lcu.ready_check()
+            if self._stop_event.is_set() or not self.running:
+                return
+            player_response = (
+                ready_check.get("playerResponse")
+                if isinstance(ready_check, dict)
+                else None
+            )
+            if (
+                isinstance(ready_check, dict)
+                and ready_check.get("state") == "InProgress"
+                and isinstance(player_response, str)
+                and player_response.strip().casefold() == "none"
+            ):
+                logger.info(
+                    "New ready-check detected while recovering previous match. "
+                    "Accepting via LCU..."
+                )
+                self._verify_started_at = None
+                self._handle_searching(phase, ready_check=ready_check)
+                return
+
+            if elapsed >= VERIFY_GRACE:
+                logger.info(
+                    "Dodge/decline detected (ChampSelect -> queue). "
+                    "Client requeues itself."
+                )
+                self.update_status_callback(UIStatus.DODGED, "orange")
+                self._verify_started_at = None
+                return
 
         # Hết thời gian xác nhận — dừng an toàn, KHÔNG bao giờ click gì.
         if elapsed > AppConfig.VERIFY_TIMEOUT:
             logger.warning("Verify timed out without champ select — stopping (no clicks).")
+            self._verify_started_at = None
             self._finish_stop("Verify Timeout", "orange")
 
     # ---- kết thúc ----
@@ -179,12 +226,18 @@ class AntiFateBot(threading.Thread):
             self.on_stop_callback(status, color)
 
     def _finish_stop(self, status: str, color: str) -> None:
-        self._stop_status = (status, color)
+        self._stop_status = (
+            (UIStatus.STOPPED, "gray")
+            if self._stop_event.is_set()
+            else (status, color)
+        )
         self.running = False
 
     def stop(self) -> None:
         self._stop_status = (UIStatus.STOPPED, "gray")
+        self._stop_event.set()
         self.running = False
+        self._verify_started_at = None
         # The worker owns the final callback. This prevents a stale tick from
         # updating the UI after STOP and keeps START locked until exit.
         if self.is_alive():
