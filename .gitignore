@@ -1,5 +1,18 @@
 # bv (beads viewer) local config and caches
 .bv/
+.codegraph/
 
 __pycache__/
 build/
+/dist/
+
+# Runtime state and local diagnostics
+*.log*
+/config.json
+
+# Local debugging files
+_apply_*.py
+_dbg_*.py
+_fix_*.py
+/discord-notifications-status.html
+/lcu_use_cases.html

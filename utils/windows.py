@@ -363,6 +363,11 @@ def set_autostart(app_name: str, add: bool = True) -> bool:
         current_path = f'"{current_path}"'
 
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    approval_key_path = (
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+    )
+    # Windows uses 02 as the enabled state in StartupApproved\Run.
+    startup_enabled_state = b"\x02" + b"\x00" * 11
 
     try:
         with winreg.OpenKey(
@@ -387,6 +392,33 @@ def set_autostart(app_name: str, add: bool = True) -> bool:
                     logger.info(f"Removed {app_name} from Startup.")
                 except FileNotFoundError:
                     logger.debug(f"{app_name} not found in Startup Registry.")
+
+        if add:
+            # Also clear a previous manual disable in Windows Startup apps.
+            with winreg.CreateKeyEx(
+                winreg.HKEY_CURRENT_USER,
+                approval_key_path,
+                0,
+                winreg.KEY_SET_VALUE,
+            ) as key:
+                winreg.SetValueEx(
+                    key,
+                    app_name,
+                    0,
+                    winreg.REG_BINARY,
+                    startup_enabled_state,
+                )
+        else:
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    approval_key_path,
+                    0,
+                    winreg.KEY_SET_VALUE,
+                ) as key:
+                    winreg.DeleteValue(key, app_name)
+            except FileNotFoundError:
+                pass
         return True
     except Exception as e:
         logger.error(f"Failed to update Startup Registry: {e}")

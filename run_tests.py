@@ -14,6 +14,8 @@ CHECKS = (
     ("LCU client", ("_test_lcu.py",)),
     ("Arena config", ("_test_arena_config.py",)),
     ("notifications", ("_test_notifications.py",)),
+    ("startup", ("_test_autostart.py",)),
+    ("startup visibility", ("_test_gui_startup.py",)),
     (
         "compile",
         (

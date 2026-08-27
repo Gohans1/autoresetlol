@@ -111,6 +111,56 @@ check(
     str((saved_notification_config, fake_notifier.calls)),
 )
 
+# ============ T1g: champion selection batches config writes ============
+class SelectionFakeCombo:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+app = AntiFateApp.__new__(AntiFateApp)
+app.arena_combos = {"main": SelectionFakeCombo("Akali")}
+app._arena_display_to_id_normalized = {"akali": 1}
+app._arena_loaded_ids = {"main": 0}
+app._arena_draft_keys = {"main"}
+app._arena_field_error_visible = {"main": False}
+app._arena_cached_names = {}
+app._arena_owned = []
+app._arena_id_to_display = {1: "Akali"}
+app._arena_recent = {"main": []}
+app._refresh_arena_validation = lambda: None
+saved_selection_config = []
+selection_sets = []
+original_config_get = gui.config_manager.get
+original_config_set = gui.config_manager.set
+original_config_save = gui.config_manager.save_config
+gui.config_manager.get = lambda key: {
+    "arena_pick_chain": [0, 0, 0, 0],
+    "arena_champion_names": {},
+}.get(key)
+gui.config_manager.set = lambda key, value, save=True: selection_sets.append(
+    (key, value, save)
+)
+gui.config_manager.save_config = lambda: saved_selection_config.append("save")
+try:
+    AntiFateApp._on_arena_combo(app, "main")
+finally:
+    gui.config_manager.get = original_config_get
+    gui.config_manager.set = original_config_set
+    gui.config_manager.save_config = original_config_save
+check(
+    "T1g: chọn tướng chỉ ghi config một lượt",
+    len(saved_selection_config) == 1
+    and selection_sets
+    and all(save is False for _, _, save in selection_sets),
+    str((selection_sets, saved_selection_config)),
+)
+
 issues = validate_arena_config(
     auto_ban_enabled=True,
     auto_pick_enabled=False,

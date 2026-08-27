@@ -1,7 +1,7 @@
 [project]
 name = "autoresetlol"
-version = "0.1.0"
-description = "Add your description here"
+version = "2.0.0"
+description = "League of Legends desktop helper with LCU automation and screen dimming"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

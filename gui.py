@@ -73,7 +73,8 @@ class AntiFateApp(ctk.CTk):
         ctk.set_window_scaling(saved_scale)
 
         super().__init__()
-        # self.withdraw()  # Temporarily disabled to debug visibility
+        # Build the complete widget tree off-screen, then reveal one stable frame.
+        self.withdraw()
 
         # Load geometry from config — migrate from old narrow layout if needed
         saved_geo = config_manager.get("window_geometry")
@@ -147,9 +148,10 @@ class AntiFateApp(ctk.CTk):
         # Setup scroll speed after all widgets are created
         self._setup_native_scroll_speed(self.main_container)
 
-        # Final show
-        self.update_idletasks()
-        # self.deiconify() # Disabled with withdraw
+        # Let CustomTkinter finish its first hidden-window initialization.
+        # A bare update_idletasks() leaves _window_exists=False, so CTk's
+        # mainloop titlebar setup withdraws the root again.
+        self.update()
 
         # Bind events
         self.bind("<Configure>", self._on_window_configure)
@@ -167,6 +169,7 @@ class AntiFateApp(ctk.CTk):
             connection_callback=self._on_arena_connection_changed,
             notification_callback=self.notifier.notify,
         )
+        self.deiconify()
         self.arena_watcher.start()
 
     def _setup_icons(self) -> None:
@@ -316,6 +319,7 @@ class AntiFateApp(ctk.CTk):
         self._arena_display_to_id_normalized: Dict[str, int] = {}
         self._arena_id_to_display: Dict[int, str] = {}
         self._arena_owned_ids: set[int] = set()
+        self._arena_field_visual_state: Dict[str, Tuple[str, str, str]] = {}
         self._arena_cached_names = self._normalize_arena_champion_names(
             config_manager.get("arena_champion_names")
         )
@@ -648,7 +652,7 @@ class AntiFateApp(ctk.CTk):
             name.casefold(): cid for name, cid in self._arena_display_to_id.items()
         }
 
-    def _save_arena_champion_names(self) -> None:
+    def _save_arena_champion_names(self, save: bool = True) -> None:
         """Persist champion names so the next app start can show labels offline."""
         data = {
             str(cid): name
@@ -656,9 +660,11 @@ class AntiFateApp(ctk.CTk):
             if cid > 0 and name
         }
         if data != config_manager.get("arena_champion_names"):
-            config_manager.set("arena_champion_names", data)
+            config_manager.set("arena_champion_names", data, save=save)
 
-    def _remember_arena_champion(self, champion_id_value: object, name: object) -> None:
+    def _remember_arena_champion(
+        self, champion_id_value: object, name: object, save: bool = True
+    ) -> None:
         cid = champion_id(champion_id_value)
         label = str(name or "").strip()
         if cid <= 0 or not label:
@@ -671,7 +677,7 @@ class AntiFateApp(ctk.CTk):
             return
         self._arena_cached_names[cid] = label
         self._refresh_arena_name_maps()
-        self._save_arena_champion_names()
+        self._save_arena_champion_names(save=save)
 
     def _apply_owned_champions(
         self,
@@ -884,10 +890,25 @@ class AntiFateApp(ctk.CTk):
             self._arena_loaded_ids.get(key, 0), key
         )
 
+    def _apply_arena_field_visual(
+        self, key: str, border: str, text_color: str, text: str
+    ) -> None:
+        state = (border, text_color, text)
+        if self._arena_field_visual_state.get(key) == state:
+            return
+        try:
+            self.arena_combos[key].configure(border_color=border)
+            self.arena_field_status[key].configure(
+                text=text,
+                text_color=text_color,
+            )
+        except Exception:
+            return
+        self._arena_field_visual_state[key] = state
+
     def _set_arena_field_visual(
         self, key: str, issues: List[ArenaConfigIssue]
     ) -> None:
-        combo = self.arena_combos[key]
         field_issues = [issue for issue in issues if key in issue.fields]
         draft = self._arena_field_is_draft(key)
         cid = champion_id(self._arena_loaded_ids.get(key, 0))
@@ -896,14 +917,7 @@ class AntiFateApp(ctk.CTk):
             border = Colors.BORDER
             text_color = Colors.MUTED_FG
             text = "Tính năng này đang tắt."
-            try:
-                combo.configure(border_color=border)
-                self.arena_field_status[key].configure(
-                    text=text,
-                    text_color=text_color,
-                )
-            except Exception:
-                pass
+            self._apply_arena_field_visual(key, border, text_color, text)
             return
 
         if draft:
@@ -952,14 +966,7 @@ class AntiFateApp(ctk.CTk):
             text_color = Colors.MUTED_FG
             text = "Chưa chọn" if key in ("ban", "main") else "Tùy chọn"
 
-        try:
-            combo.configure(border_color=border)
-            self.arena_field_status[key].configure(
-                text=text,
-                text_color=text_color,
-            )
-        except Exception:
-            pass
+        self._apply_arena_field_visual(key, border, text_color, text)
 
     def _schedule_arena_validation(self) -> None:
         """Debounce draft validation while the user is typing."""
@@ -1116,14 +1123,14 @@ class AntiFateApp(ctk.CTk):
                 self._refresh_arena_validation()
                 return  # text gõ tay không khớp tướng nào → không lưu
         if key == "ban":
-            config_manager.set("arena_ban_champ", cid)
+            config_manager.set("arena_ban_champ", cid, save=False)
         else:
             order = {"main": 0, "b1": 1, "b2": 2, "b3": 3}
             chain = list(config_manager.get("arena_pick_chain") or [0, 0, 0, 0])
             while len(chain) < 4:
                 chain.append(0)
             chain[order[key]] = cid
-            config_manager.set("arena_pick_chain", chain)
+            config_manager.set("arena_pick_chain", chain, save=False)
         self._arena_loaded_ids[key] = cid
         self._arena_draft_keys.discard(key)
         self._arena_field_error_visible[key] = False
@@ -1135,10 +1142,12 @@ class AntiFateApp(ctk.CTk):
             self._remember_arena_champion(
                 cid,
                 self._arena_id_to_display.get(cid) or disp,
+                save=False,
             )
             recent = [cid] + [c for c in self._arena_recent.get(key, []) if c != cid]
             self._arena_recent[key] = recent[:5]
-            config_manager.set("arena_recent", self._arena_recent)
+            config_manager.set("arena_recent", self._arena_recent, save=False)
+        config_manager.save_config()
         # Values = gợi ý 5 mới (không để lại list 25/full)
         try:
             combo.configure(
