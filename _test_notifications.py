@@ -182,11 +182,11 @@ def filter_runner(message):
 
 notifier = HermesNotifier(runner=filter_runner, retry_delay=0, queue_size=4)
 notifier.notify("test.filter", "active")
-active_started.wait(2)
+check("T3d1: event đang chạy", active_started.wait(2))
 notifier.notify("test.filter", "pending")
 notifier.set_event_enabled("test.filter", False)
 release_active.set()
-active_finished.wait(2)
+check("T3d2: event đang chạy kết thúc", active_finished.wait(2))
 notifier.close()
 check("T3d: tắt event chặn event mới", not notifier.notify("test.filter", "off"))
 check("T3e: tắt event bỏ event đang chờ", filter_calls == ["active"], str(filter_calls))
@@ -224,7 +224,7 @@ notifier = HermesNotifier(
     retry_delay=1,
 )
 notifier.notify("test.shutdown", "ignored")
-retry_started.wait(2)
+check("T4b1: retry worker đã chạy", retry_started.wait(2))
 notifier.close(timeout=0.1)
 check("T4b: close dừng worker đang retry", not notifier._thread.is_alive())
 
@@ -247,12 +247,16 @@ notifier = HermesNotifier(
     retry_delay=0,
 )
 notifier.notify("test.shutdown.zero", "ignored")
-zero_delay_started.wait(2)
+check("T4c1: runner retry không delay đã chạy", zero_delay_started.wait(2))
 notifier.close(timeout=0.1)
 zero_delay_release.set()
 notifier._thread.join(timeout=2)
 check(
-    "T4c: close chặn retry dù retry_delay=0",
+    "T4c2: worker kết thúc sau runner release",
+    not notifier._thread.is_alive(),
+)
+check(
+    "T4c3: close chặn retry dù retry_delay=0",
     zero_delay_calls == ["ignored"],
     str(zero_delay_calls),
 )

@@ -307,9 +307,9 @@ class LCUClient:
                 )
         return out
 
-    def owned_champions(self) -> List[Dict[str, Any]]:
-        """Danh sách tướng đã sở hữu; rỗng nếu request lỗi."""
-        return self.owned_champions_result() or []
+    def owned_champions(self) -> Optional[List[Dict[str, Any]]]:
+        """Return the roster, or None when the roster request failed."""
+        return self.owned_champions_result()
 
 
 # Singleton dùng chung cho toàn app

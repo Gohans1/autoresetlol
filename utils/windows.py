@@ -5,10 +5,17 @@ import time
 import winreg
 import sys
 import os
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 # Get logger instance by name
 logger = logging.getLogger("AutoResetLoL")
+
+_STARTUP_RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_STARTUP_APPROVAL_KEY_PATH = (
+    r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+)
+_STARTUP_ENABLED_STATE = b"\x02" + b"\x00" * 11
+_STARTUP_LEGACY_NAMES = ("antifate_7.14", "AntiFateEngine")
 
 # Load GDI32 and User32 libraries globally
 gdi32 = ctypes.windll.gdi32
@@ -35,8 +42,7 @@ class GammaController:
 
     Windows rejects any ramp dimmer than ~50% of the linear ramp
     (SetDeviceGammaRamp returns FALSE and silently keeps the old ramp),
-    so below 50% we use a gamma curve (k=2, scale 0.5) that is dimmer
-    than linear 50% at every point yet passes Windows validation.
+    so this controller clamps gamma brightness to the safe [50, 100] range.
     """
 
     def __init__(self):
@@ -173,11 +179,17 @@ class MonitorBrightnessController:
                 ctypes.POINTER(PHYSICAL_MONITOR),
             ]
             dxva2.GetPhysicalMonitorsFromHMONITOR.restype = wintypes.BOOL
-            # NOTE: Get/SetMonitorBrightness deliberately have NO argtypes.
-            # On WMI/ACPI laptop panels the handle is 0; declaring [HANDLE, ...]
-            # converts None/0 to a NULL pointer which the driver rejects, while
-            # the plain integer 0 (no argtypes) is accepted. Verified empirically.
+            dxva2.GetMonitorBrightness.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(wintypes.DWORD),
+                ctypes.POINTER(wintypes.DWORD),
+                ctypes.POINTER(wintypes.DWORD),
+            ]
             dxva2.GetMonitorBrightness.restype = wintypes.BOOL
+            dxva2.SetMonitorBrightness.argtypes = [
+                wintypes.HANDLE,
+                wintypes.DWORD,
+            ]
             dxva2.SetMonitorBrightness.restype = wintypes.BOOL
             dxva2.DestroyPhysicalMonitor.argtypes = [wintypes.HANDLE]
             dxva2.DestroyPhysicalMonitor.restype = wintypes.BOOL
@@ -195,7 +207,7 @@ class MonitorBrightnessController:
                     # A NULL handle means the driver simulates DDC/CI state
                     # (verified on NVIDIA + non-DDC monitor): set/get then lie.
                     # Only accept a real hardware handle.
-                    if pm.hPhysicalMonitor is None:
+                    if not pm.hPhysicalMonitor:
                         dxva2.DestroyPhysicalMonitor(pm.hPhysicalMonitor)
                         continue
                     mn = wintypes.DWORD(0)
@@ -277,9 +289,8 @@ class DimmerController:
 
     - Backlight backend: full 0-100% deep dimming, physical (invisible to
       capture), recoverable with keyboard brightness keys.
-    - Gamma backend: Windows rejects ramps dimmer than ~50% linear; below
-      50% a validated gamma curve is used (dimmer than linear 50% at every
-      point, but with a hard floor).
+    - Gamma backend: Windows rejects ramps dimmer than ~50% linear, so the
+      gamma controller clamps brightness to the safe [50, 100] range.
     - Runtime safety: if the backlight backend fails repeatedly, fall back
       to gamma for the rest of the session.
     """
@@ -340,6 +351,135 @@ class DimmerController:
             self._backend = None
 
 
+def _read_startup_value(
+    key_path: str, app_name: str
+) -> Optional[Tuple[Any, int]]:
+    """Read one value as the `(data, type)` tuple returned by winreg."""
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            key_path,
+            0,
+            winreg.KEY_READ,
+        ) as key:
+            return winreg.QueryValueEx(key, app_name)
+    except FileNotFoundError:
+        return None
+
+
+def _restore_startup_value(
+    key_path: str,
+    app_name: str,
+    value: Optional[Tuple[Any, int]],
+    access: int,
+) -> bool:
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            key_path,
+            0,
+            access,
+        ) as key:
+            if value is None:
+                try:
+                    winreg.DeleteValue(key, app_name)
+                except FileNotFoundError:
+                    pass
+            else:
+                value_data, value_type = value
+                winreg.SetValueEx(key, app_name, 0, value_type, value_data)
+        return True
+    except FileNotFoundError:
+        return value is None
+    except Exception as e:
+        logger.error(f"Failed to restore Startup Registry state: {e}")
+        return False
+
+
+def get_autostart_snapshot(app_name: str) -> Optional[Dict[str, Any]]:
+    """Capture the Startup values that an update can change."""
+    try:
+        return {
+            "app_name": app_name,
+            "run": _read_startup_value(_STARTUP_RUN_KEY_PATH, app_name),
+            "approval": _read_startup_value(_STARTUP_APPROVAL_KEY_PATH, app_name),
+            "legacy": {
+                legacy: _read_startup_value(_STARTUP_RUN_KEY_PATH, legacy)
+                for legacy in _STARTUP_LEGACY_NAMES
+                if legacy != app_name
+            },
+        }
+    except OSError as e:
+        logger.error(f"Failed to read Startup Registry state: {e}")
+        return None
+
+
+def restore_autostart_snapshot(snapshot: Dict[str, Any]) -> bool:
+    """Restore the exact Startup values captured before an update."""
+    app_name = snapshot.get("app_name", "Anti-Fate Engine")
+    restored = _restore_startup_value(
+        _STARTUP_RUN_KEY_PATH,
+        app_name,
+        snapshot.get("run"),
+        winreg.KEY_ALL_ACCESS,
+    )
+    restored = (
+        _restore_startup_value(
+            _STARTUP_APPROVAL_KEY_PATH,
+            app_name,
+            snapshot.get("approval"),
+            winreg.KEY_SET_VALUE,
+        )
+        and restored
+    )
+    for legacy, value in (snapshot.get("legacy") or {}).items():
+        restored = (
+            _restore_startup_value(
+                _STARTUP_RUN_KEY_PATH,
+                legacy,
+                value,
+                winreg.KEY_ALL_ACCESS,
+            )
+            and restored
+        )
+    return restored
+
+
+def get_autostart_state(app_name: str) -> Optional[bool]:
+    """Return the effective Startup state, or None when Windows denies the read."""
+    try:
+        run_value = _read_startup_value(_STARTUP_RUN_KEY_PATH, app_name)
+    except OSError as e:
+        logger.warning(f"Failed to read Startup Registry entry: {e}")
+        return None
+    if run_value is None:
+        return False
+
+    try:
+        approval_value = _read_startup_value(
+            _STARTUP_APPROVAL_KEY_PATH,
+            app_name,
+        )
+    except OSError as e:
+        logger.warning(f"Failed to read Startup approval state: {e}")
+        return None
+    if approval_value is None:
+        return True
+
+    raw_state, value_type = approval_value
+    if (
+        value_type != winreg.REG_BINARY
+        or not isinstance(raw_state, (bytes, bytearray))
+        or len(raw_state) != len(_STARTUP_ENABLED_STATE)
+    ):
+        return None
+    if raw_state[0] == 2:
+        return True
+    if raw_state[0] in (3, 7):
+        return False
+    return None
+
+
 def set_autostart(app_name: str, add: bool = True) -> bool:
     """
     Adds or removes the application from Windows Startup (Registry).
@@ -362,19 +502,19 @@ def set_autostart(app_name: str, add: bool = True) -> bool:
     ):
         current_path = f'"{current_path}"'
 
-    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    approval_key_path = (
-        r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
-    )
-    # Windows uses 02 as the enabled state in StartupApproved\Run.
-    startup_enabled_state = b"\x02" + b"\x00" * 11
+    key_path = _STARTUP_RUN_KEY_PATH
+    approval_key_path = _STARTUP_APPROVAL_KEY_PATH
+    startup_enabled_state = _STARTUP_ENABLED_STATE
+    legacy_names = _STARTUP_LEGACY_NAMES
+    snapshot = get_autostart_snapshot(app_name)
+    if snapshot is None:
+        return False
 
     try:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS
         ) as key:
             # Cleanup legacy names to avoid duplicates in Startup tab
-            legacy_names = ["antifate_7.14", "AntiFateEngine"]
             for legacy in legacy_names:
                 try:
                     if legacy != app_name:
@@ -419,7 +559,13 @@ def set_autostart(app_name: str, add: bool = True) -> bool:
                     winreg.DeleteValue(key, app_name)
             except FileNotFoundError:
                 pass
+        effective_state = get_autostart_state(app_name)
+        if effective_state is not bool(add):
+            raise OSError(
+                f"Startup Registry read-back mismatch: expected {bool(add)}"
+            )
         return True
     except Exception as e:
+        restore_autostart_snapshot(snapshot)
         logger.error(f"Failed to update Startup Registry: {e}")
         return False

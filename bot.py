@@ -50,6 +50,7 @@ class AntiFateBot(threading.Thread):
         self._error_until: float = 0.0  # giữ status lỗi vài giây, không ghi đè
         self._stop_status: Optional[tuple[str, str]] = None
         self._stop_callback_sent = False
+        self._write_lock = threading.RLock()
 
     # ---- vòng lặp ----
 
@@ -156,9 +157,10 @@ class AntiFateBot(threading.Thread):
 
         logger.info("MATCH FOUND! Accepting via LCU...")
         self.update_status_callback(UIStatus.MATCH_FOUND, "green")
-        if self._stop_event.is_set() or not self.running:
+        accepted = self._accept_match_if_current()
+        if accepted is None:
             return
-        if not lcu.accept_match():
+        if not accepted:
             logger.error("Accept failed via LCU")
             self.update_status_callback("Không thể xác nhận trận — đang thử lại", "red")
             self._error_until = time.time() + 3
@@ -168,6 +170,16 @@ class AntiFateBot(threading.Thread):
             return
         self._verify_started_at = time.time()
         self.update_status_callback(UIStatus.ACCEPTED, "purple")
+
+    def _accept_match_if_current(self) -> Optional[bool]:
+        """Serialize cancellation with the ready-check accept write."""
+        with self._write_lock:
+            if self._stop_event.is_set() or not self.running:
+                return None
+            accepted = lcu.accept_match()
+            if self._stop_event.is_set() or not self.running:
+                return None
+            return accepted
 
     def _handle_verifying(self, phase: Optional[str]) -> None:
         if self._verify_started_at is None:
@@ -234,10 +246,11 @@ class AntiFateBot(threading.Thread):
         self.running = False
 
     def stop(self) -> None:
-        self._stop_status = (UIStatus.STOPPED, "gray")
-        self._stop_event.set()
-        self.running = False
-        self._verify_started_at = None
+        with self._write_lock:
+            self._stop_status = (UIStatus.STOPPED, "gray")
+            self._stop_event.set()
+            self.running = False
+            self._verify_started_at = None
         # The worker owns the final callback. This prevents a stale tick from
         # updating the UI after STOP and keeps START locked until exit.
         if self.is_alive():

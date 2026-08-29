@@ -17,10 +17,16 @@ from arena_config import (
     champion_id,
     validate_arena_config,
 )
-from config import config_manager
+from config import config_manager, normalize_ui_scale
 from bot import AntiFateBot
 from lcu_watcher import LcuWatcher
-from utils.windows import DimmerController, set_autostart
+from utils.windows import (
+    DimmerController,
+    get_autostart_snapshot,
+    get_autostart_state,
+    restore_autostart_snapshot,
+    set_autostart,
+)
 from utils.lcu import lcu
 from constants import (
     AppConfig,
@@ -41,6 +47,8 @@ ARENA_FIELD_LABELS = {
     "b2": "Dự bị 2",
     "b3": "Dự bị 3",
 }
+
+DIMMER_SAVE_DEBOUNCE_MS = 250
 
 # Set Theme
 ctk.set_appearance_mode(AppConfig.THEME_MODE)
@@ -68,7 +76,7 @@ class AntiFateApp(ctk.CTk):
         if saved_scale is None:
             saved_scale = DefaultConfig.UI_SCALE
             config_manager.set("ui_scale", saved_scale)
-        saved_scale = max(0.8, min(2.0, float(saved_scale)))  # Wider range for 16px+
+        saved_scale = normalize_ui_scale(saved_scale)
         ctk.set_widget_scaling(saved_scale)
         ctk.set_window_scaling(saved_scale)
 
@@ -124,6 +132,9 @@ class AntiFateApp(ctk.CTk):
         self.notifier = HermesNotifier()
         self.dimmer = DimmerController()
         self._dimmer_watchdog_id = None
+        self._dimmer_save_after_id = None
+        self._dimmer_save_dirty = False
+        self._arena_save_dirty = False
         self._watchdog_drift_count = 0
         # Variables
         self.dimmer_enabled_var = ctk.BooleanVar(value=True)
@@ -148,11 +159,6 @@ class AntiFateApp(ctk.CTk):
         # Setup scroll speed after all widgets are created
         self._setup_native_scroll_speed(self.main_container)
 
-        # Let CustomTkinter finish its first hidden-window initialization.
-        # A bare update_idletasks() leaves _window_exists=False, so CTk's
-        # mainloop titlebar setup withdraws the root again.
-        self.update()
-
         # Bind events
         self.bind("<Configure>", self._on_window_configure)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -169,6 +175,11 @@ class AntiFateApp(ctk.CTk):
             connection_callback=self._on_arena_connection_changed,
             notification_callback=self.notifier.notify,
         )
+        self._show_ready_window()
+
+    def _show_ready_window(self) -> None:
+        """Complete hidden-window initialization before watcher activity."""
+        self.update()
         self.deiconify()
         self.arena_watcher.start()
 
@@ -652,15 +663,31 @@ class AntiFateApp(ctk.CTk):
             name.casefold(): cid for name, cid in self._arena_display_to_id.items()
         }
 
-    def _save_arena_champion_names(self, save: bool = True) -> None:
+    def _save_arena_champion_names(self, save: bool = True) -> bool:
         """Persist champion names so the next app start can show labels offline."""
         data = {
             str(cid): name
             for cid, name in sorted(self._arena_cached_names.items())
             if cid > 0 and name
         }
-        if data != config_manager.get("arena_champion_names"):
-            config_manager.set("arena_champion_names", data, save=save)
+        if data == config_manager.get("arena_champion_names"):
+            return True
+        if not config_manager.set("arena_champion_names", data, save=save):
+            self._arena_save_dirty = True
+            logger.error("Arena champion-name save failed; keeping pending value")
+            return False
+        self._arena_save_dirty = not save
+        return True
+
+    def _flush_pending_arena_save(self) -> bool:
+        """Retry a failed Arena configuration save before teardown."""
+        if not self.__dict__.get("_arena_save_dirty", False):
+            return True
+        if config_manager.save_config():
+            self._arena_save_dirty = False
+            return True
+        logger.error("Arena config save failed; keeping pending value")
+        return False
 
     def _remember_arena_champion(
         self, champion_id_value: object, name: object, save: bool = True
@@ -1028,8 +1055,8 @@ class AntiFateApp(ctk.CTk):
                 text_color=Colors.BG if summary_color != Colors.MUTED_FG else Colors.FG,
             )
 
-            scale = config_manager.get("ui_scale") or 1.0
-            wraplength = int(360 / max(0.8, float(scale)))
+            scale = normalize_ui_scale(config_manager.get("ui_scale"))
+            wraplength = int(360 / scale)
             pick_values = " → ".join(
                 self._arena_summary_value(key) for key in ("main", "b1", "b2", "b3")
             )
@@ -1099,12 +1126,24 @@ class AntiFateApp(ctk.CTk):
             self.arena_pick_fields_frame.pack_forget()
 
     def _on_auto_ban_toggle(self) -> None:
-        config_manager.set("auto_ban_enabled", self.auto_ban_var.get())
+        enabled = bool(self.auto_ban_var.get())
+        previous = config_manager.get("auto_ban_enabled")
+        if not config_manager.set("auto_ban_enabled", enabled):
+            self.auto_ban_var.set(
+                bool(previous) if previous is not None else not enabled
+            )
+            logger.error("Auto Ban save failed; keeping the previous state")
         self._refresh_arena_field_visibility()
         self._refresh_arena_validation()
 
     def _on_auto_pick_toggle(self) -> None:
-        config_manager.set("auto_pick_enabled", self.auto_pick_var.get())
+        enabled = bool(self.auto_pick_var.get())
+        previous = config_manager.get("auto_pick_enabled")
+        if not config_manager.set("auto_pick_enabled", enabled):
+            self.auto_pick_var.set(
+                bool(previous) if previous is not None else not enabled
+            )
+            logger.error("Auto Pick save failed; keeping the previous state")
         self._refresh_arena_field_visibility()
         self._refresh_arena_validation()
 
@@ -1123,14 +1162,18 @@ class AntiFateApp(ctk.CTk):
                 self._refresh_arena_validation()
                 return  # text gõ tay không khớp tướng nào → không lưu
         if key == "ban":
-            config_manager.set("arena_ban_champ", cid, save=False)
+            updated = config_manager.set("arena_ban_champ", cid, save=False)
         else:
             order = {"main": 0, "b1": 1, "b2": 2, "b3": 3}
             chain = list(config_manager.get("arena_pick_chain") or [0, 0, 0, 0])
             while len(chain) < 4:
                 chain.append(0)
             chain[order[key]] = cid
-            config_manager.set("arena_pick_chain", chain, save=False)
+            updated = config_manager.set("arena_pick_chain", chain, save=False)
+        if not updated:
+            self._arena_save_dirty = True
+            logger.error("Arena selection update failed; keeping pending value")
+            return
         self._arena_loaded_ids[key] = cid
         self._arena_draft_keys.discard(key)
         self._arena_field_error_visible[key] = False
@@ -1147,7 +1190,11 @@ class AntiFateApp(ctk.CTk):
             recent = [cid] + [c for c in self._arena_recent.get(key, []) if c != cid]
             self._arena_recent[key] = recent[:5]
             config_manager.set("arena_recent", self._arena_recent, save=False)
-        config_manager.save_config()
+        self._arena_save_dirty = True
+        if config_manager.save_config():
+            self._arena_save_dirty = False
+        else:
+            logger.error("Arena config save failed; keeping pending value")
         # Values = gợi ý 5 mới (không để lại list 25/full)
         try:
             combo.configure(
@@ -1544,7 +1591,7 @@ class AntiFateApp(ctk.CTk):
         current_scale = config_manager.get("ui_scale")
         if current_scale is None:
             current_scale = DefaultConfig.UI_SCALE
-        current_scale = max(0.8, min(2.0, float(current_scale)))
+        current_scale = normalize_ui_scale(current_scale)
         current_display = f"{int(current_scale * 100)}%"
         if current_display not in scale_options:
             current_display = "125%"
@@ -1568,7 +1615,7 @@ class AntiFateApp(ctk.CTk):
     def _on_scale_changed(self, choice: str) -> None:
         """Đổi UI scale → hỏi xác nhận rồi restart."""
         new_scale = int(choice.replace("%", "")) / 100.0
-        current_scale = config_manager.get("ui_scale") or 1.0
+        current_scale = normalize_ui_scale(config_manager.get("ui_scale"))
         if new_scale == current_scale:
             return
 
@@ -1579,7 +1626,10 @@ class AntiFateApp(ctk.CTk):
             parent=self,
         )
         if result:
-            config_manager.set("ui_scale", new_scale)
+            if not config_manager.set("ui_scale", new_scale):
+                self.scale_dropdown.set(f"{int(current_scale * 100)}%")
+                logger.error("UI scale save failed; keeping the previous state")
+                return
             logger.info(f"UI scale changed to {new_scale}")
             self._restart_app()
         else:
@@ -2017,16 +2067,20 @@ class AntiFateApp(ctk.CTk):
         # OR if dimmer was visually reset to 100% by reset_dimmer())
         if not self._skip_dimmer_save and not self._dimmer_reset_visual:
             if old_mode == "gaming":
-                config_manager.set("dimmer_gaming_value", current_slider_val)
+                config_manager.set(
+                    "dimmer_gaming_value", current_slider_val, save=False
+                )
             else:
-                config_manager.set("dimmer_browsing_value", current_slider_val)
+                config_manager.set(
+                    "dimmer_browsing_value", current_slider_val, save=False
+                )
 
         # Reset flags
         self._skip_dimmer_save = False
         self._dimmer_reset_visual = False
 
         # Switch mode
-        config_manager.set("dimmer_mode", new_mode)
+        config_manager.set("dimmer_mode", new_mode, save=False)
 
         # Load and apply value for the NEW mode
         if new_mode == "gaming":
@@ -2042,8 +2096,16 @@ class AntiFateApp(ctk.CTk):
         self.dimmer_slider.set(float(new_val))
         if self.dimmer_enabled_var.get():
             self.dimmer.set_brightness(new_val)
-        config_manager.set("dimmer_value", new_val)
-        logger.info(f"Dimmer mode switched to: {new_mode} (brightness: {new_val}%)")
+        config_manager.set("dimmer_value", new_val, save=False)
+        self._dimmer_save_dirty = True
+        saved = self._save_dimmer_config()
+        if saved:
+            logger.info(f"Dimmer mode switched to: {new_mode} (brightness: {new_val}%)")
+        else:
+            logger.warning(
+                f"Dimmer mode switched to: {new_mode} (brightness: {new_val}%), "
+                "config save pending"
+            )
 
     def _automatic_dimmer_allowed(self) -> bool:
         """Single gate for every automatic dimmer write."""
@@ -2087,8 +2149,15 @@ class AntiFateApp(ctk.CTk):
                 browsing_val = config_manager.get("dimmer_browsing_value")
                 if browsing_val is None:
                     browsing_val = 100
-                config_manager.set("dimmer_browsing_value", int(browsing_val))
-                logger.info(f"Saved browsing dimmer value: {int(browsing_val)}%")
+                config_manager.set(
+                    "dimmer_browsing_value", int(browsing_val), save=False
+                )
+                self._dimmer_save_dirty = True
+                saved = self._save_dimmer_config()
+                if saved:
+                    logger.info(f"Saved browsing dimmer value: {int(browsing_val)}%")
+                else:
+                    logger.warning("Browsing dimmer value save pending")
 
             # Set flag to prevent _on_dimmer_mode_changed from re-saving (would save wrong value)
             self._skip_dimmer_save = True
@@ -2126,7 +2195,11 @@ class AntiFateApp(ctk.CTk):
                 gaming_val = config_manager.get("dimmer_gaming_value")
                 if gaming_val is None:
                     gaming_val = 100
-                config_manager.set("dimmer_gaming_value", int(gaming_val))
+                config_manager.set(
+                    "dimmer_gaming_value", int(gaming_val), save=False
+                )
+                self._dimmer_save_dirty = True
+                self._save_dimmer_config()
 
             self._skip_dimmer_save = True
             self.after(10, lambda: self._apply_automatic_mode("🌐 Browsing"))
@@ -2211,6 +2284,8 @@ class AntiFateApp(ctk.CTk):
         import subprocess
 
         # Clean up before restart
+        self._flush_pending_dimmer_save()
+        self._flush_pending_arena_save()
         if self.bot:
             self.bot.stop()
         self.dimmer.close()
@@ -2259,9 +2334,13 @@ class AntiFateApp(ctk.CTk):
         self.dimmer_slider.set(float(max(50, min(100, dimmer_val))))
         self.dimmer_enabled_var.set(dimmer_enabled)
         # Load Startup Settings
-        saved_startup = config_manager.get("auto_startup_enabled")
+        saved_startup = get_autostart_state(AppConfig.APP_NAME)
         if saved_startup is None:
-            saved_startup = False
+            saved_startup = config_manager.get("auto_startup_enabled")
+            if saved_startup is None:
+                saved_startup = False
+        else:
+            config_manager.set("auto_startup_enabled", saved_startup, save=False)
         self.auto_startup_enabled_var.set(saved_startup)
 
         # Load Auto Accept Settings
@@ -2281,13 +2360,32 @@ class AntiFateApp(ctk.CTk):
 
     def toggle_startup(self) -> None:
         is_enabled = self.auto_startup_enabled_var.get()
-        config_manager.set("auto_startup_enabled", is_enabled)
-        set_autostart(AppConfig.APP_NAME, add=is_enabled)
+        previous_snapshot = get_autostart_snapshot(AppConfig.APP_NAME)
+        if previous_snapshot is None:
+            self.auto_startup_enabled_var.set(not is_enabled)
+            logger.error("Auto Startup state read failed; keeping the previous state")
+            return
+        if not set_autostart(AppConfig.APP_NAME, add=is_enabled):
+            self.auto_startup_enabled_var.set(not is_enabled)
+            logger.error("Auto Startup change failed; keeping the previous state")
+            return
+        if not config_manager.set("auto_startup_enabled", is_enabled):
+            if not restore_autostart_snapshot(previous_snapshot):
+                logger.error("Auto Startup rollback failed")
+            self.auto_startup_enabled_var.set(not is_enabled)
+            logger.error("Auto Startup config save failed; keeping the previous state")
+            return
         logger.info(f"Auto Startup toggled: {is_enabled}")
 
     def toggle_auto_accept(self) -> None:
-        is_enabled = self.auto_accept_enabled_var.get()
-        config_manager.set("auto_accept_enabled", is_enabled)
+        is_enabled = bool(self.auto_accept_enabled_var.get())
+        previous = config_manager.get("auto_accept_enabled")
+        if not config_manager.set("auto_accept_enabled", is_enabled):
+            self.auto_accept_enabled_var.set(
+                bool(previous) if previous is not None else not is_enabled
+            )
+            logger.error("Auto Accept save failed; keeping the previous state")
+            return
         logger.info(f"Auto Accept Match toggled: {is_enabled}")
 
     def _toggle_discord_notification(
@@ -2296,14 +2394,28 @@ class AntiFateApp(ctk.CTk):
         variable,
     ) -> None:
         is_enabled = bool(variable.get())
-        config_manager.set(spec.config_key, is_enabled)
+        previous = config_manager.get(spec.config_key)
+        if not config_manager.set(spec.config_key, is_enabled):
+            restored = bool(previous) if previous is not None else not is_enabled
+            variable.set(restored)
+            self.notifier.set_event_enabled(spec.event_name, restored)
+            logger.error(
+                f"Discord notification save failed; keeping {spec.event_name} state"
+            )
+            return
         self.notifier.set_event_enabled(spec.event_name, is_enabled)
         logger.info(f"Discord notification toggled: {spec.event_name}={is_enabled}")
 
     def _toggle_auto_dimmer_switch(self) -> None:
         """Handle auto dimmer switch toggle (auto-switch to Gaming mode on champ select)."""
-        is_enabled = self.auto_dimmer_switch_var.get()
-        config_manager.set("auto_dimmer_switch_enabled", is_enabled)
+        is_enabled = bool(self.auto_dimmer_switch_var.get())
+        previous = config_manager.get("auto_dimmer_switch_enabled")
+        if not config_manager.set("auto_dimmer_switch_enabled", is_enabled):
+            self.auto_dimmer_switch_var.set(
+                bool(previous) if previous is not None else not is_enabled
+            )
+            logger.error("Auto dimmer switch save failed; keeping the previous state")
+            return
         logger.info(f"Auto dimmer switch toggled: {is_enabled}")
 
     def toggle_dimmer(self, save: bool = True) -> None:
@@ -2311,7 +2423,9 @@ class AntiFateApp(ctk.CTk):
         current_val = self.dimmer_slider.get()
 
         if save:
-            config_manager.set("dimmer_enabled", is_enabled)
+            config_manager.set("dimmer_enabled", is_enabled, save=False)
+            self._dimmer_save_dirty = True
+            self._save_dimmer_config()
 
         if is_enabled:
             self.dimmer_slider.configure(state="normal", button_color=Colors.PRIMARY)
@@ -2332,13 +2446,47 @@ class AntiFateApp(ctk.CTk):
             )
             self.dimmer.set_brightness(100)
 
+    def _schedule_dimmer_save(self) -> None:
+        if self._dimmer_save_after_id:
+            try:
+                self.after_cancel(self._dimmer_save_after_id)
+            except Exception:
+                pass
+        self._dimmer_save_after_id = self.after(
+            DIMMER_SAVE_DEBOUNCE_MS,
+            self._flush_dimmer_save,
+        )
+
+    def _save_dimmer_config(self) -> bool:
+        if config_manager.save_config():
+            self._dimmer_save_dirty = False
+            return True
+        self._dimmer_save_dirty = True
+        logger.error("Dimmer config save failed; keeping pending value")
+        return False
+
+    def _flush_dimmer_save(self) -> None:
+        self._dimmer_save_after_id = None
+        self._save_dimmer_config()
+
+    def _flush_pending_dimmer_save(self) -> None:
+        if not self._dimmer_save_after_id and not getattr(
+            self, "_dimmer_save_dirty", False
+        ):
+            return
+        if self._dimmer_save_after_id:
+            try:
+                self.after_cancel(self._dimmer_save_after_id)
+            except Exception:
+                pass
+        self._dimmer_save_after_id = None
+        self._save_dimmer_config()
+
     def change_brightness(self, value: float) -> None:
         # Only apply if enabled
         if self.dimmer_enabled_var.get():
             self.dimmer.set_brightness(int(value))
-            # Batch config updates into a single file write (slider drags
-            # fire dozens of events per second - one write per event made
-            # the UI janky and hammered the disk).
+            # Keep slider drags in memory and save once after the user pauses.
             config_manager.set("dimmer_value", int(value), save=False)
 
             # Clear visual reset flag when user actively drags slider
@@ -2351,7 +2499,8 @@ class AntiFateApp(ctk.CTk):
                 config_manager.set("dimmer_gaming_value", int(value), save=False)
             else:
                 config_manager.set("dimmer_browsing_value", int(value), save=False)
-            config_manager.save_config()
+            self._dimmer_save_dirty = True
+            self._schedule_dimmer_save()
             logger.debug(
                 f"Slider changed to {int(value)}% ({current_mode} mode) - "
                 f"gaming={config_manager.get('dimmer_gaming_value')} "
@@ -2532,8 +2681,8 @@ class AntiFateApp(ctk.CTk):
             ).pack(fill="x", padx=4, pady=(0, 2))
             return
 
-        scale = config_manager.get("ui_scale") or 1.0
-        wraplength = int(300 / max(0.8, float(scale)))
+        scale = normalize_ui_scale(config_manager.get("ui_scale"))
+        wraplength = int(300 / scale)
         color_map: Dict[str, str] = {
             "green": Colors.GREEN,
             "red": Colors.RED,
@@ -2756,6 +2905,8 @@ class AntiFateApp(ctk.CTk):
         if self._dimmer_watchdog_id:
             self.after_cancel(self._dimmer_watchdog_id)
             self._dimmer_watchdog_id = None
+        self._flush_pending_dimmer_save()
+        self._flush_pending_arena_save()
         try:
             self._bot_stopping = True
             self._set_arena_automation_enabled(False)

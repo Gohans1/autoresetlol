@@ -45,10 +45,18 @@ def _enforce_single_instance() -> bool:
     # trong ~5s cho cha thoát, hết thời gian mới báo lỗi.
     max_tries = 10 if "--restart" in sys.argv else 1
     for attempt in range(max_tries):
+        ctypes.set_last_error(0)
         _SINGLE_INSTANCE_MUTEX = kernel32.CreateMutexW(
             None, 0, "AntiFateEngine_SingleInstance"
         )
-        if ctypes.get_last_error() != 183:  # not ERROR_ALREADY_EXISTS
+        last_error = ctypes.get_last_error()
+        if not _SINGLE_INSTANCE_MUTEX:
+            logger.error(
+                "CreateMutexW failed; single-instance protection is unavailable "
+                f"(error {last_error})"
+            )
+            return False
+        if last_error != 183:  # not ERROR_ALREADY_EXISTS
             return True
         # Close handle vừa mở (bản sao của mutex đang tồn tại) trước khi retry
         if _SINGLE_INSTANCE_MUTEX:
@@ -80,8 +88,14 @@ def main() -> None:
     sys.exit(0)
 
 
-if __name__ == "__main__":
+def _run() -> int:
     try:
         main()
     except Exception as e:
         logger.critical(f"Critical Application Error: {e}", exc_info=True)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run())

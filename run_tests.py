@@ -16,6 +16,9 @@ CHECKS = (
     ("notifications", ("_test_notifications.py",)),
     ("startup", ("_test_autostart.py",)),
     ("startup visibility", ("_test_gui_startup.py",)),
+    ("config safety", ("_test_config.py",)),
+    ("dimmer save", ("_test_gui_dimmer.py",)),
+    ("Windows monitor handles", ("_test_windows.py",)),
     (
         "compile",
         (

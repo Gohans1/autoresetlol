@@ -78,6 +78,9 @@ class NotificationFakeVar:
     def get(self):
         return self.value
 
+    def set(self, value):
+        self.value = value
+
 
 class NotificationFakeNotifier:
     def __init__(self):
@@ -93,8 +96,8 @@ setattr(fake_app, "notifier", fake_notifier)
 fake_var = NotificationFakeVar(True)
 saved_notification_config = []
 original_config_set = gui.config_manager.set
-gui.config_manager.set = lambda key, value, save=True: saved_notification_config.append(
-    (key, value)
+gui.config_manager.set = lambda key, value, save=True: (
+    saved_notification_config.append((key, value)) or True
 )
 try:
     AntiFateApp._toggle_discord_notification(
@@ -143,10 +146,12 @@ gui.config_manager.get = lambda key: {
     "arena_pick_chain": [0, 0, 0, 0],
     "arena_champion_names": {},
 }.get(key)
-gui.config_manager.set = lambda key, value, save=True: selection_sets.append(
-    (key, value, save)
+gui.config_manager.set = lambda key, value, save=True: (
+    selection_sets.append((key, value, save)) or True
 )
-gui.config_manager.save_config = lambda: saved_selection_config.append("save")
+gui.config_manager.save_config = lambda: (
+    saved_selection_config.append("save") or True
+)
 try:
     AntiFateApp._on_arena_combo(app, "main")
 finally:
@@ -417,14 +422,18 @@ check(
 
 
 app: Any = AntiFateApp.__new__(AntiFateApp)
-app._update_suggest = lambda key: (_ for _ in ()).throw(
-    AssertionError("navigation key must not re-filter suggestions")
-)
-app._refresh_arena_validation = lambda: None
+suggest_update_calls = []
+validation_calls = []
+app._update_suggest = lambda key: suggest_update_calls.append(key)
+app._refresh_arena_validation = lambda: validation_calls.append(True)
 app._arena_field_error_visible = {"ban": True}
 for key_name in ("Up", "Down", "Left", "Right"):
     AntiFateApp._on_arena_combo_key(app, "ban", FakeKeyEvent(key_name))
-check("T10: navigation key không reset suggestion", True)
+check(
+    "T10: navigation key không reset suggestion",
+    suggest_update_calls == [] and validation_calls == [],
+    str((suggest_update_calls, validation_calls)),
+)
 
 # ============ T10b: virtual edit cũng là draft ============
 app = AntiFateApp.__new__(AntiFateApp)

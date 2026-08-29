@@ -20,6 +20,8 @@ class FakeLCU:
     search_active_state: Optional[bool] = False
     accept_ok: bool = True
     accept_calls: int = 0
+    accept_entered: Optional[threading.Event] = None
+    accept_release: Optional[threading.Event] = None
     ready_entered: Optional[threading.Event] = None
     ready_release: Optional[threading.Event] = None
 
@@ -45,6 +47,10 @@ class FakeLCU:
         }
 
     def accept_match(self):
+        if self.accept_entered is not None:
+            self.accept_entered.set()
+            if self.accept_release is not None:
+                self.accept_release.wait(2)
         self.accept_calls += 1
         self.player_response = "Accepted"
         return self.accept_ok
@@ -56,7 +62,7 @@ setattr(lcu_module, "lcu", fake_lcu)
 sys.modules["utils.lcu"] = lcu_module
 
 import bot  # noqa: E402
-from config import config_manager  # noqa: E402
+from config import BotConfig, config_manager  # noqa: E402
 
 # Tests must not pollute the runtime log used for live diagnostics.
 bot.logger.disabled = True
@@ -81,6 +87,8 @@ def make_bot():
     STATUS_LOG.clear()
     fake_lcu.accept_calls = 0
     fake_lcu.accept_ok = True
+    fake_lcu.accept_entered = None
+    fake_lcu.accept_release = None
     fake_lcu.ready_state = None
     fake_lcu.player_response = "None"
     fake_lcu.ready_check_calls = 0
@@ -258,6 +266,22 @@ b._tick()
 check("T9: toggle tắt → 0 accept", fake_lcu.accept_calls == 0, str(fake_lcu.accept_calls))
 fake_config["auto_accept_enabled"] = True
 
+# ============ T9b: legacy string false is safe at the bot boundary ============
+b = make_bot()
+b.running = True
+fake_config["auto_accept_enabled"] = BotConfig.from_dict(
+    {"auto_accept_enabled": "false"}
+).auto_accept_enabled
+fake_lcu.ready_state = "InProgress"
+b._tick()
+check(
+    "T9b: legacy false → không accept",
+    fake_lcu.accept_calls == 0
+    and type(fake_config["auto_accept_enabled"]) is bool,
+    str(fake_config["auto_accept_enabled"]),
+)
+fake_config["auto_accept_enabled"] = True
+
 # ============ T10: không kết nối được client → báo lỗi ============
 b = make_bot()
 b.running = True
@@ -318,6 +342,43 @@ check(
     "T11e3: STOP không bị ghi đè bởi verify timeout",
     (bot.UIStatus.STOPPED, "gray") in STATUS_LOG,
     str(STATUS_LOG),
+)
+
+# ============ T11f: STOP chờ accept đang chạy ============
+blocked_accept_bot = make_bot()
+blocked_accept_bot.running = True
+fake_lcu.phase = "Matchmaking"
+fake_lcu.ready_state = "InProgress"
+accept_entered = threading.Event()
+accept_release = threading.Event()
+fake_lcu.accept_entered = accept_entered
+fake_lcu.accept_release = accept_release
+blocked_accept_bot.start()
+check("T11f1: accept đã vào điểm chặn", accept_entered.wait(1))
+stop_done = threading.Event()
+
+
+def stop_during_accept():
+    blocked_accept_bot.stop()
+    stop_done.set()
+
+
+stop_thread = threading.Thread(target=stop_during_accept)
+stop_thread.start()
+check("T11f2: STOP chờ accept đang chạy", not stop_done.wait(0.1))
+accept_release.set()
+check("T11f3: STOP hoàn tất sau accept", stop_done.wait(2))
+blocked_accept_bot.join(timeout=2)
+stop_thread.join(timeout=2)
+check(
+    "T11f4a: race threads đã kết thúc",
+    not blocked_accept_bot.is_alive() and not stop_thread.is_alive(),
+)
+check("T11f4: accept đang chạy chỉ gửi một lần", fake_lcu.accept_calls == 1)
+check(
+    "T11f5: sau STOP không gửi accept mới",
+    blocked_accept_bot._accept_match_if_current() is None
+    and fake_lcu.accept_calls == 1,
 )
 
 # ============ KẾT LUẬN ============

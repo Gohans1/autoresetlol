@@ -37,6 +37,7 @@ class FakeLCU:
         self.patch_state_champion_id = None
         self.patch_entered: Optional[threading.Event] = None
         self.patch_release: Optional[threading.Event] = None
+        self.before_patch = None
 
     def gameflow_phase(self):
         return self.phase
@@ -55,6 +56,10 @@ class FakeLCU:
         return self.session
 
     def set_action_champion(self, action_id, champion_id):
+        if self.before_patch is not None:
+            hook = self.before_patch
+            self.before_patch = None
+            hook()
         if self.patch_entered is not None:
             self.patch_entered.set()
             if self.patch_release is not None:
@@ -153,6 +158,7 @@ def make_watcher():
     fake_lcu.patch_state_champion_id = None
     fake_lcu.patch_entered = None
     fake_lcu.patch_release = None
+    fake_lcu.before_patch = None
     w = lcu_watcher.LcuWatcher(
         update_status_callback=lambda t, c: STATUS_LOG.append((t, c)),
         arena_event_callback=lambda t, c: ARENA_EVENTS.append((t, c)),
@@ -566,7 +572,7 @@ fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 w._tick()
 check("T15: game_mode None → không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
 
-# ============ T16: owned_champions raise → fail-open, vẫn pick main ============
+# ============ T16: roster unknown → fail-closed, không pick ============
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
@@ -575,14 +581,29 @@ fake_lcu.owned_raises = True
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 w._tick()
-check("T16: owned fail → vẫn pick theo chain (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
+check("T16: owned fail → không pick theo chain", fake_lcu.patches == [], str(fake_lcu.patches))
+check("T16b: owned fail → vẫn chờ roster", w._arena_state.pick_handled is False)
 fake_lcu.owned_raises = False
+
+# ============ T16c: roster rỗng hợp lệ → không pick ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+owned_backup = fake_lcu.owned
+fake_lcu.owned = []
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+w._tick()
+check("T16c: owned rỗng → không pick", fake_lcu.patches == [], str(fake_lcu.patches))
+fake_lcu.owned = owned_backup
 
 # ============ T17: session thiếu key actions → không crash ============
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
 fake_lcu.session = make_session(actions=None, bans_my=[1])
+del fake_lcu.session["actions"]
 fake_config["auto_ban_enabled"] = True
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_ban_champ"] = 99
@@ -870,7 +891,7 @@ check(
     ),
     str(ARENA_EVENTS),
 )
-# Client chưa biết tên (owned_raises) → fallback "Tướng #id"
+# Roster unknown → fail-closed, không tự chọn
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
@@ -880,11 +901,8 @@ fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
 check(
-    "T30d: chưa biết tên → hiện Tướng #id",
-    any(
-        text == "Đã chọn: Tướng #1" and color == "green"
-        for text, color in ARENA_EVENTS
-    ),
+    "T30d: roster unknown → không tự chọn",
+    fake_lcu.patches == [],
     str(ARENA_EVENTS),
 )
 fake_lcu.owned_raises = False
@@ -952,10 +970,14 @@ def disable_while_patch_blocked():
 
 disable_thread = threading.Thread(target=disable_while_patch_blocked)
 disable_thread.start()
-check("T30g2: disable không chờ PATCH", disable_done.wait(1))
+check("T30g2: disable chờ PATCH", not disable_done.wait(0.1))
 patch_release.set()
 patch_thread.join(timeout=2)
 disable_thread.join(timeout=2)
+check(
+    "T30g2a: race threads đã kết thúc",
+    not patch_thread.is_alive() and not disable_thread.is_alive(),
+)
 fake_lcu.patch_entered = None
 fake_lcu.patch_release = None
 check("T30g3: PATCH stale bị hủy", result_holder == [None], str(result_holder))
@@ -1101,7 +1123,645 @@ check(
     str(w._arena_state),
 )
 
-# ============ KẾT LUẬN ============
+# ============ T34: delayed Pick read-back belongs to the bot ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3)],
+        [action(20, "pick")],
+    ],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+w._tick()
+check(
+    "T34a: delayed PATCH read-back keeps Pick pending",
+    fake_lcu.patches == [(20, 1)] and w._arena_state.pick_handled is False,
+    str(w._arena_state),
+)
+fake_lcu.session["actions"][1][0]["championId"] = 1
+w._tick()
+check(
+    "T34b: delayed bot Pick verifies instead of becoming a user choice",
+    w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 1
+    and fake_lcu.patches == [(20, 1)]
+    and any(
+        text == "Đã chọn: Aatrox" and color == "green"
+        for text, color in ARENA_EVENTS
+    ),
+    str(ARENA_EVENTS),
+)
+
+# ============ T34c: pending Pick does not PATCH again while client is empty ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+w._tick()
+w._tick()
+check(
+    "T34c: empty delayed Pick does not duplicate PATCH",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_pending_action == (20, 1)
+    and w._arena_state.pick_handled is False,
+    str((fake_lcu.patches, w._arena_state)),
+)
+
+# ============ T35: delayed Pick action may disappear briefly ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+w._tick()
+fake_lcu.session["actions"][1].clear()
+w._tick()
+check(
+    "T35a: absent delayed Pick keeps provenance",
+    w._arena_state.pick_pending_action == (20, 1)
+    and w._arena_state.pick_handled is False
+    and fake_lcu.patches == [(20, 1)],
+    str(w._arena_state),
+)
+fake_lcu.session["actions"][1].append(action(20, "pick", champion_id=1))
+w._tick()
+check(
+    "T35b: reappearing delayed Pick commits without PATCH",
+    w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 1
+    and fake_lcu.patches == [(20, 1)],
+    str(ARENA_EVENTS),
+)
+
+# ============ T36: delayed completed Pick sends one notification ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+w._tick()
+fake_lcu.session["actions"][1][0].update(
+    {"championId": 1, "completed": True, "isInProgress": False}
+)
+w._tick()
+check(
+    "T36a: completed delayed Pick commits once",
+    w._arena_state.pick_handled is True
+    and fake_lcu.patches == [(20, 1)],
+    str(w._arena_state),
+)
+check(
+    "T36b: completed delayed Pick notifies once",
+    [event for event, _message, _key in NOTIFICATIONS]
+    == ["arena.pick_verified"],
+    str(NOTIFICATIONS),
+)
+
+# ============ T37: stale Pick snapshot cannot confirm the bot ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+w._tick()
+fake_lcu.session["actions"][1][0].update(
+    {"championId": 1, "completed": True, "isInProgress": False}
+)
+fake_lcu.session_reads = 0
+fake_lcu.mutate_pick_on_second_read = True
+w._tick()
+check(
+    "T37: stale completed Pick snapshot respects live user choice",
+    w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 0
+    and fake_lcu.patches == [(20, 1)]
+    and any(text.startswith("Bạn đã tự chọn: Garen") for text, _color in ARENA_EVENTS),
+    str(ARENA_EVENTS),
+)
+
+# ============ T38: user may reselect a champion the bot attempted earlier ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[3],
+)
+w._tick()
+check("T38a: bot first pick", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [action(20, "pick")],
+        [action(21, "pick", actor=9, champion_id=1)],
+    ],
+    bans_my=[3],
+)
+w._tick()
+check("T38b: teammate takes first pick", 1 in w._arena_state.pick_attempted_ids, str(w._arena_state))
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick", champion_id=1)]],
+    bans_my=[3],
+)
+w._tick()
+check(
+    "T38c: user reselects attempted champion without overwrite",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 0,
+    str((fake_lcu.patches, w._arena_state)),
+)
+
+# ============ T39: pending Pick lost to another player falls back ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[3],
+)
+w._tick()
+check(
+    "T39a: delayed Pick has pending provenance",
+    w._arena_state.pick_pending_action == (20, 1),
+    str(w._arena_state),
+)
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [action(20, "pick")],
+        [action(21, "pick", actor=9, champion_id=1)],
+    ],
+    bans_my=[3],
+)
+w._tick()
+check(
+    "T39b: teammate takes pending Pick and bot falls back",
+    fake_lcu.patches == [(20, 1), (20, 2)]
+    and 1 in w._arena_state.pick_attempted_ids
+    and w._arena_state.pick_pending_action == (20, 2),
+    str((fake_lcu.patches, w._arena_state)),
+)
+
+# ============ T40: session snapshot is bound to the automation generation ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+stale_session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_their=[3],
+)
+fresh_session = make_session(
+    actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_their=[1],
+)
+fake_lcu.session = fresh_session
+original_session_reader = fake_lcu.champ_select_session
+try:
+    def read_stale_then_fresh():
+        fake_lcu.session_reads += 1
+        if fake_lcu.session_reads == 1:
+            w.set_automation_enabled(False)
+            w.set_automation_enabled(True)
+            return stale_session
+        return fresh_session
+
+    fake_lcu.champ_select_session = read_stale_then_fresh
+    w._tick()
+    stale_tick_patches = list(fake_lcu.patches)
+    w._tick()
+finally:
+    fake_lcu.champ_select_session = original_session_reader
+check(
+    "T40: generation change rejects stale session snapshot",
+    stale_tick_patches == []
+    and fake_lcu.patches == [(20, 2)]
+    and w._arena_state.pick_picked_id == 2,
+    str(fake_lcu.patches),
+)
+
+# ============ T41: pending Ban phải đọc lại action live ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.apply_patch_to_session = False
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", actor=0)], [action(20, "pick", in_progress=False)]]
+)
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 99
+w._tick()
+stale_session = copy.deepcopy(fake_lcu.session)
+stale_session["actions"][0][0]["championId"] = 99
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban", actor=0, champion_id=4)], [action(20, "pick", in_progress=False)]]
+)
+w._handle_ban(stale_session)
+check(
+    "T41: stale pending Ban snapshot respects live user choice",
+    w._arena_state.ban_handled is True
+    and ARENA_EVENTS[-1][0].startswith("Bạn đã tự cấm:")
+    and NOTIFICATIONS == [],
+    str(ARENA_EVENTS[-1:]),
+)
+
+# ============ T42: không xác minh Pick khi đồng đội cũng giữ tướng ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [
+            action(20, "pick", actor=0, champion_id=1),
+            action(21, "pick", actor=9, champion_id=1),
+        ],
+    ],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+w._arena_state.pick_pending_action = (20, 1)
+w._handle_pick(fake_lcu.session)
+check(
+    "T42a: pending Pick holder race uses fallback",
+    fake_lcu.patches == [(20, 2)]
+    and 1 in w._arena_state.pick_attempted_ids
+    and w._arena_state.pick_picked_id == 2
+    and NOTIFICATIONS[-1][0] == lcu_watcher.DISCORD_EVENT_PICK,
+    str((fake_lcu.patches, w._arena_state.pick_attempted_ids)),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [
+            action(20, "pick", actor=0, champion_id=1),
+            action(21, "pick", actor=9, champion_id=1),
+        ],
+    ],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+w._arena_state.pick_handled = True
+w._arena_state.pick_picked_id = 1
+w._handle_pick(fake_lcu.session)
+check(
+    "T42b: Pick watch checks teammate holder before early return",
+    fake_lcu.patches == [(20, 2)]
+    and 1 in w._arena_state.pick_attempted_ids
+    and w._arena_state.pick_picked_id == 2,
+    str((fake_lcu.patches, w._arena_state.pick_attempted_ids)),
+)
+
+# ============ T43: action đổi trước PATCH thì không được ghi đè ============
+def set_live_action_champion(action_id, champion_id_value):
+    for group in fake_lcu.session.get("actions") or []:
+        for current_action in group:
+            if current_action.get("id") == action_id:
+                current_action["championId"] = champion_id_value
+
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban")], [action(20, "pick", in_progress=False)]]
+)
+stale_session = copy.deepcopy(fake_lcu.session)
+original_session_reader = fake_lcu.champ_select_session
+session_read_count = [0]
+
+
+def read_stale_then_live_ban():
+    session_read_count[0] += 1
+    return stale_session if session_read_count[0] == 1 else fake_lcu.session
+
+
+fake_lcu.champ_select_session = read_stale_then_live_ban
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 99
+original_live_action = w._live_action
+
+
+def live_ban_then_user(action_type, action_id):
+    result = original_live_action(action_type, action_id)
+    snapshot = copy.deepcopy(result) if result is not None else result
+    if action_type == "ban":
+        set_live_action_champion(10, 4)
+    return snapshot
+
+
+w._live_action = live_ban_then_user
+try:
+    w._tick()
+finally:
+    fake_lcu.champ_select_session = original_session_reader
+check(
+    "T43: Ban live action changes before PATCH",
+    fake_lcu.patches == []
+    and w._arena_state.ban_handled is False
+    and NOTIFICATIONS == [],
+    str((fake_lcu.patches, w._arena_state)),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [action(20, "pick")],
+    ],
+    bans_my=[3],
+)
+stale_session = copy.deepcopy(fake_lcu.session)
+original_session_reader = fake_lcu.champ_select_session
+session_read_count = [0]
+
+
+def read_stale_then_live_pick():
+    session_read_count[0] += 1
+    return stale_session if session_read_count[0] == 1 else fake_lcu.session
+
+
+fake_lcu.champ_select_session = read_stale_then_live_pick
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+original_live_action = w._live_action
+
+
+def live_pick_then_user(action_type, action_id):
+    result = original_live_action(action_type, action_id)
+    snapshot = copy.deepcopy(result) if result is not None else result
+    if action_type == "pick":
+        set_live_action_champion(20, 4)
+    return snapshot
+
+
+w._live_action = live_pick_then_user
+try:
+    w._tick()
+finally:
+    fake_lcu.champ_select_session = original_session_reader
+check(
+    "T44: Pick live action changes before PATCH",
+    fake_lcu.patches == []
+    and w._arena_state.pick_handled is False
+    and NOTIFICATIONS == [],
+    str((fake_lcu.patches, w._arena_state)),
+)
+
+# ============ T45: action đổi sau read-back thì không commit bot ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[[action(10, "ban")], [action(20, "pick", in_progress=False)]]
+)
+fake_config["auto_ban_enabled"] = True
+fake_config["arena_ban_champ"] = 99
+original_verify = w._set_action_champion_verified
+
+
+def verify_then_user_ban(*args, **kwargs):
+    result = original_verify(*args, **kwargs)
+    if result:
+        set_live_action_champion(10, 4)
+    return result
+
+
+w._set_action_champion_verified = verify_then_user_ban
+w._tick()
+check(
+    "T45: Ban read-back race does not commit bot result",
+    fake_lcu.patches == [(10, 99)]
+    and w._arena_state.ban_handled is False
+    and NOTIFICATIONS == [],
+    str((fake_lcu.patches, w._arena_state, NOTIFICATIONS)),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [action(20, "pick")],
+    ],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+original_verify = w._set_action_champion_verified
+
+
+def verify_then_user_pick(*args, **kwargs):
+    result = original_verify(*args, **kwargs)
+    if result:
+        set_live_action_champion(20, 4)
+    return result
+
+
+w._set_action_champion_verified = verify_then_user_pick
+w._tick()
+check(
+    "T46: Pick read-back race does not commit bot result",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is False
+    and NOTIFICATIONS == [],
+    str((fake_lcu.patches, w._arena_state, NOTIFICATIONS)),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+stale_pick_session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [action(20, "pick")],
+    ],
+    bans_my=[3],
+)
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [
+            action(20, "pick", actor=0, champion_id=1),
+            action(21, "pick", actor=9, champion_id=1),
+        ],
+    ],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+w._arena_state.pick_pending_action = (20, 1)
+w._handle_pick(stale_pick_session)
+check(
+    "T47: pending Pick live holder race does not verify bot result",
+    fake_lcu.patches == []
+    and w._arena_state.pick_picked_id == 0
+    and w._arena_state.pick_handled is False
+    and 1 in w._arena_state.pick_attempted_ids
+    and NOTIFICATIONS == [],
+    str((fake_lcu.patches, w._arena_state, NOTIFICATIONS)),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3, completed=True, in_progress=False)],
+        [action(20, "pick")],
+    ],
+    bans_my=[3],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+
+
+def add_live_pick_holder():
+    fake_lcu.session["actions"][1].append(
+        action(21, "pick", actor=9, champion_id=1)
+    )
+
+
+fake_lcu.before_patch = add_live_pick_holder
+w._tick()
+check(
+    "T48: Pick holder race after PATCH does not notify bot success",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is False
+    and w._arena_state.pick_pending_action == (20, 1)
+    and NOTIFICATIONS == [],
+    str((fake_lcu.patches, w._arena_state, NOTIFICATIONS)),
+)
+
+reset_state()
+w = make_watcher()
+fake_config.update(
+    {
+        "auto_dimmer_switch_enabled": True,
+        "dimmer_enabled": True,
+    }
+)
+dimmer_transitions = []
+w.on_gaming_callback = lambda: dimmer_transitions.append("gaming")
+w.on_browsing_callback = lambda: dimmer_transitions.append("browsing")
+w._auto_dimmer("ChampSelect")
+w._auto_dimmer("InProgress")
+w._auto_dimmer("Lobby")
+check(
+    "T49: auto dimmer đổi một lần theo phase",
+    dimmer_transitions == ["gaming", "browsing"]
+    and w._gaming_state is False,
+    str((dimmer_transitions, w._gaming_state)),
+)
+fake_config["dimmer_enabled"] = False
+w._auto_dimmer("ChampSelect")
+check(
+    "T49b: dimmer tắt → không đổi mode",
+    dimmer_transitions == ["gaming", "browsing"]
+    and w._gaming_state is False,
+    str((dimmer_transitions, w._gaming_state)),
+)
+fake_config["dimmer_enabled"] = True
+fake_config["auto_dimmer_switch_enabled"] = False
+w._auto_dimmer("ChampSelect")
+check(
+    "T49c: auto switch tắt → không đổi mode",
+    dimmer_transitions == ["gaming", "browsing"]
+    and w._gaming_state is False,
+    str((dimmer_transitions, w._gaming_state)),
+)
+check(
+    "T50: action thiếu isInProgress phải chờ",
+    lcu_watcher.LcuWatcher._action_is_in_progress(
+        {"type": "pick", "completed": False}
+    )
+    is False,
+)
+
+
+def test_owned_ids_cache_expiry_and_error_state() -> None:
+    reset_state()
+    original_time = lcu_watcher.time.time
+    original_owned = fake_lcu.owned
+    original_raises = fake_lcu.owned_raises
+    now = [100.0]
+    try:
+        lcu_watcher.time.time = lambda: now[0]
+        fake_lcu.owned_raises = False
+        fake_lcu.owned = [{"id": 60053, "name": "Blitzcrank"}]
+        watcher = make_watcher()
+        first = watcher._owned_ids()
+        fake_lcu.owned = [{"id": 2, "name": "Yasuo"}]
+        now[0] = 105.0
+        cached = watcher._owned_ids()
+        now[0] = 111.0
+        refreshed = watcher._owned_ids()
+        check("T51a: roster cache giữ dữ liệu trong TTL", cached == {53}, str(cached))
+        check("T51b: roster cache hết TTL thì refresh", refreshed == {2}, str(refreshed))
+
+        fake_lcu.owned_raises = True
+        now[0] = 122.0
+        failed = watcher._owned_ids()
+        fake_lcu.owned_raises = False
+        fake_lcu.owned = [{"id": 3, "name": "Zed"}]
+        now[0] = 123.0
+        blocked = watcher._owned_ids()
+        now[0] = 133.0
+        recovered = watcher._owned_ids()
+        check("T51c: roster lỗi trả unknown", failed is None)
+        check("T51d: roster lỗi không trả roster cũ", blocked is None, str(blocked))
+        check("T51e: roster sau TTL thì hồi phục", recovered == {3}, str(recovered))
+        check("T51f: first roster dùng alias canonical", first == {53}, str(first))
+    finally:
+        lcu_watcher.time.time = original_time
+        fake_lcu.owned = original_owned
+        fake_lcu.owned_raises = original_raises
+
+
+test_owned_ids_cache_expiry_and_error_state()
+
 print()
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} test thất bại: {FAILURES}")

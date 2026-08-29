@@ -1,6 +1,8 @@
 import json
+import math
 import os
 import logging
+import tempfile
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict, field
 import threading
@@ -8,6 +10,47 @@ from constants import DefaultConfig, AppConfig
 from arena_config import champion_id, normalize_pick_chain
 
 logger = logging.getLogger("AutoResetLoL")
+
+
+_BOOLEAN_DEFAULTS = {
+    "dimmer_enabled": DefaultConfig.DIMMER_ENABLED,
+    "auto_dimmer_switch_enabled": DefaultConfig.AUTO_DIMMER_SWITCH_ENABLED,
+    "auto_startup_enabled": DefaultConfig.AUTO_STARTUP_ENABLED,
+    "auto_accept_enabled": DefaultConfig.AUTO_ACCEPT_ENABLED,
+    "auto_ban_enabled": DefaultConfig.AUTO_BAN_ENABLED,
+    "auto_pick_enabled": DefaultConfig.AUTO_PICK_ENABLED,
+    "discord_notify_ban": DefaultConfig.DISCORD_NOTIFY_BAN,
+    "discord_notify_pick": DefaultConfig.DISCORD_NOTIFY_PICK,
+    "discord_notify_in_game": DefaultConfig.DISCORD_NOTIFY_IN_GAME,
+}
+
+
+def _normalize_bool(value: object, default: bool) -> bool:
+    """Normalize persisted boolean values without treating non-empty strings as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return bool(default)
+
+
+def normalize_ui_scale(value: object) -> float:
+    """Normalize a saved UI scale without allowing malformed values to crash startup."""
+    if isinstance(value, bool):
+        return float(DefaultConfig.UI_SCALE)
+    try:
+        scale = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return float(DefaultConfig.UI_SCALE)
+    if not math.isfinite(scale):
+        return float(DefaultConfig.UI_SCALE)
+    return max(0.8, min(2.0, scale))
 
 
 def _normalize_arena_recent(value: object) -> Dict[str, List[int]]:
@@ -44,6 +87,8 @@ def _normalize_arena_names(value: object) -> Dict[str, str]:
 
 def _normalize_arena_value(key: str, value: Any) -> Any:
     """Keep every Arena ID at the config boundary in canonical form."""
+    if key in _BOOLEAN_DEFAULTS:
+        return _normalize_bool(value, _BOOLEAN_DEFAULTS[key])
     if key == "arena_ban_champ":
         return champion_id(value)
     if key == "arena_pick_chain":
@@ -52,6 +97,8 @@ def _normalize_arena_value(key: str, value: Any) -> Any:
         return _normalize_arena_recent(value)
     if key == "arena_champion_names":
         return _normalize_arena_names(value)
+    if key == "ui_scale":
+        return normalize_ui_scale(value)
     return value
 
 
@@ -100,6 +147,8 @@ class BotConfig:
         valid_keys = cls.__dataclass_fields__.keys()
         filtered_data = {k: v for k, v in data.items() if k in valid_keys}
         config = cls(**filtered_data)
+        for key, default in _BOOLEAN_DEFAULTS.items():
+            setattr(config, key, _normalize_bool(getattr(config, key), default))
         for key in (
             "arena_ban_champ",
             "arena_pick_chain",
@@ -107,6 +156,7 @@ class BotConfig:
             "arena_champion_names",
         ):
             setattr(config, key, _normalize_arena_value(key, getattr(config, key)))
+        config.ui_scale = normalize_ui_scale(config.ui_scale)
         return config
 
 
@@ -114,7 +164,7 @@ class ConfigManager:
     def __init__(self, config_file: Optional[str] = None):
         self.config_file = config_file or AppConfig.CONFIG_FILE
         self.config: BotConfig = BotConfig()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.load_config()
 
     def load_config(self) -> None:
@@ -137,38 +187,66 @@ class ConfigManager:
             except Exception as e:
                 logger.error(f"Error loading config: {e}")
 
-    def save_config(self) -> None:
-        """Saves the current configuration to the JSON file.
+    def save_config(self) -> bool:
+        """Save the current configuration without replacing a valid file on failure.
 
         Lock: bot/watcher thread và GUI thread có thể ghi đồng thời — write
         không lock có thể làm hỏng config.json.
         """
         with self._lock:
+            temp_path = None
             try:
-                with open(self.config_file, "w") as f:
-                    json.dump(asdict(self.config), f, indent=4)
+                config_path = os.path.abspath(self.config_file)
+                config_dir = os.path.dirname(config_path) or "."
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=config_dir,
+                    prefix=f".{os.path.basename(config_path)}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temp_file:
+                    temp_path = temp_file.name
+                    json.dump(asdict(self.config), temp_file, indent=4)
+                    temp_file.flush()
+                    os.fsync(temp_file.fileno())
+                os.replace(temp_path, config_path)
+                temp_path = None
                 logger.info(f"Config saved to {self.config_file}")
+                return True
             except Exception as e:
                 logger.error(f"Error saving config: {e}")
+                return False
+            finally:
+                if temp_path:
+                    try:
+                        os.remove(temp_path)
+                    except OSError:
+                        pass
 
     def get(self, key: str) -> Any:
         """Retrieves a configuration value."""
-        if hasattr(self.config, key):
-            return getattr(self.config, key)
-        return None
+        with self._lock:
+            if hasattr(self.config, key):
+                return getattr(self.config, key)
+            return None
 
-    def set(self, key: str, value: Any, save: bool = True) -> None:
+    def set(self, key: str, value: Any, save: bool = True) -> bool:
         """Sets a configuration value and saves to file.
 
         save=False batches multiple updates into one file write (e.g. the
         dimmer slider drag handler, which fires dozens of times per second).
         """
-        if hasattr(self.config, key):
-            setattr(self.config, key, _normalize_arena_value(key, value))
-            if save:
-                self.save_config()
-        else:
+        if not hasattr(self.config, key):
             logger.warning(f"Attempted to set unknown config key: {key}")
+            return False
+        with self._lock:
+            previous_value = getattr(self.config, key)
+            setattr(self.config, key, _normalize_arena_value(key, value))
+            if not save or self.save_config():
+                return True
+            setattr(self.config, key, previous_value)
+            return False
 
 
 # Global instance

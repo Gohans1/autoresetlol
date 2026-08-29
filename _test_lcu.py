@@ -1,8 +1,12 @@
 """Focused tests for LCU queue mode normalization."""
+import base64
 import io
 import sys
+import tempfile
 import urllib.error
 from email.message import Message
+from pathlib import Path
+from types import SimpleNamespace
 
 import utils.lcu as lcu_module
 from utils.lcu import LCUClient, normalize_game_mode
@@ -70,6 +74,17 @@ check(
     and action_client.last_request[2] == {"championId": 53},
     str(action_client.last_request),
 )
+check(
+    "T5c: set_action_champion gửi đúng PATCH",
+    action_client.last_request
+    == (
+        "PATCH",
+        "/lol-champ-select/v1/session/actions/7",
+        {"championId": 53},
+        True,
+    ),
+    "set_action_champion gửi sai method, path, body, hoặc raise_on_error",
+)
 
 
 class SearchClient(LCUClient):
@@ -91,6 +106,8 @@ class RosterResultClient(LCUClient):
 
 check("T7: roster request lỗi → None", RosterResultClient(None).owned_champions_result() is None)
 check("T8: roster response rỗng hợp lệ → []", RosterResultClient([]).owned_champions_result() == [])
+check("T7b: owned_champions request lỗi → None", RosterResultClient(None).owned_champions() is None)
+check("T8b: owned_champions response rỗng hợp lệ → []", RosterResultClient([]).owned_champions() == [])
 
 
 class DisconnectedClient(LCUClient):
@@ -196,6 +213,71 @@ try:
         stale.connected
         and stale._base == "https://127.0.0.1:5678"
         and stale._auth == "Basic new",
+    )
+finally:
+    lcu_module.urllib.request.urlopen = original_urlopen
+
+
+# T22-T24: kiểm tra cầu nối LCU thật bằng lockfile và HTTP giả lập.
+with tempfile.TemporaryDirectory() as temp_dir:
+    executable = Path(temp_dir) / "LeagueClient.exe"
+    lockfile = executable.parent / "lockfile"
+    lockfile.write_text(
+        "LeagueClient:1234:12345:lock-secret:https\n", encoding="utf-8"
+    )
+    process = SimpleNamespace(
+        info={"name": "LeagueClient.exe", "exe": str(executable)}
+    )
+    original_process_iter = lcu_module.psutil.process_iter
+    try:
+        lcu_module.psutil.process_iter = lambda *args, **kwargs: [process]
+        connected_client = LCUClient()
+        check(
+            "T22: connect đọc đúng lockfile",
+            connected_client.connect() is True
+            and connected_client.connected is True
+            and connected_client._base == "https://127.0.0.1:12345"
+            and connected_client._auth
+            == "Basic "
+            + base64.b64encode(b"riot:lock-secret").decode("ascii"),
+            "connect không đọc đúng process, port, protocol, hoặc password",
+        )
+
+        invalid_lockfile = LCUClient()
+        lockfile.write_text("broken-lockfile\n", encoding="utf-8")
+        check(
+            "T23: connect từ chối lockfile sai",
+            invalid_lockfile.connect() is False
+            and invalid_lockfile.connected is False,
+            "connect chấp nhận lockfile sai định dạng",
+        )
+    finally:
+        lcu_module.psutil.process_iter = original_process_iter
+
+
+captured_request = {}
+original_urlopen = lcu_module.urllib.request.urlopen
+
+
+def capture_urlopen(request, **kwargs):
+    captured_request["request"] = request
+    captured_request["kwargs"] = kwargs
+    return FakeResponse()
+
+
+try:
+    lcu_module.urllib.request.urlopen = capture_urlopen
+    endpoint_client = ready_client()
+    check(
+        "T24: accept_match gửi đúng request và nhận 204",
+        endpoint_client.accept_match() is True
+        and captured_request["request"].get_method() == "POST"
+        and captured_request["request"].full_url
+        == "https://127.0.0.1:1234/lol-matchmaking/v1/ready-check/accept"
+        and captured_request["request"].data is None
+        and captured_request["request"].get_header("Authorization")
+        == "Basic old",
+        "accept_match gửi sai request hoặc không xem response 204 là thành công",
     )
 finally:
     lcu_module.urllib.request.urlopen = original_urlopen
