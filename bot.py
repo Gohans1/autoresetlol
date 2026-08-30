@@ -50,6 +50,7 @@ class AntiFateBot(threading.Thread):
         self._error_until: float = 0.0  # giữ status lỗi vài giây, không ghi đè
         self._stop_status: Optional[tuple[str, str]] = None
         self._stop_callback_sent = False
+        self._stop_callback_lock = threading.Lock()
         self._write_lock = threading.RLock()
 
     # ---- vòng lặp ----
@@ -231,11 +232,13 @@ class AntiFateBot(threading.Thread):
 
     def _notify_stop(self, status: str, color: str) -> None:
         """Notify the GUI once, after the worker loop has fully exited."""
-        if self._stop_callback_sent:
-            return
-        self._stop_callback_sent = True
-        if self.on_stop_callback:
-            self.on_stop_callback(status, color)
+        with self._stop_callback_lock:
+            if self._stop_callback_sent:
+                return
+            self._stop_callback_sent = True
+            callback = self.on_stop_callback
+        if callback:
+            callback(status, color)
 
     def _finish_stop(self, status: str, color: str) -> None:
         self._stop_status = (

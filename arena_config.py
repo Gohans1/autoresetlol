@@ -32,7 +32,10 @@ def champion_id(value: object) -> int:
         value = value.strip()
         if not value.isdecimal():
             return 0
-        value = int(value)
+        try:
+            value = int(value)
+        except (ValueError, OverflowError):
+            return 0
     if not isinstance(value, int) or value <= 0:
         return 0
     if _CHAMPION_ALIAS_OFFSET <= value < _CHAMPION_ALIAS_LIMIT:

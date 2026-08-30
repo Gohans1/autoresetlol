@@ -35,6 +35,17 @@ check(
     "T1b: Arena alias ID 60053 dùng cùng ID action 53",
     champion_id(60053) == 53 and champion_id("60053") == 53,
 )
+oversized_id = None
+oversized_id_error = None
+try:
+    oversized_id = champion_id("9" * 5000)
+except Exception as error:
+    oversized_id_error = type(error).__name__
+check(
+    "T1g: champion ID quá dài bị từ chối an toàn",
+    oversized_id_error is None and oversized_id == 0,
+    str((oversized_id_error, oversized_id)),
+)
 legacy_config = BotConfig.from_dict(
     {
         "arena_ban_champ": "60053",
@@ -68,6 +79,11 @@ check(
     and not default_config.discord_notify_pick
     and not default_config.discord_notify_in_game,
     str(default_config),
+)
+check(
+    "T1f: Arena name helper giữ API static",
+    gui.AntiFateApp._normalize_arena_champion_names({"53": "Blitzcrank"})
+    == {53: "Blitzcrank"},
 )
 
 
@@ -553,11 +569,14 @@ app.dimmer = FakeDimmer()
 app.dimmer_slider = FakeSlider()
 callbacks = []
 app.after = lambda _delay, callback: callbacks.append(callback)
+automatic_dimmer = {"enabled": True}
 gui.config_manager.get = lambda key: (
-    True if key == "auto_dimmer_switch_enabled" else original_get(key)
+    True if key == "auto_dimmer_switch_enabled" else (
+        automatic_dimmer["enabled"] if key == "dimmer_enabled" else original_get(key)
+    )
 )
 AntiFateApp.reset_dimmer(app)
-app.dimmer_enabled_var.value = False
+automatic_dimmer["enabled"] = False
 for callback in callbacks:
     callback()
 check(

@@ -46,6 +46,46 @@ check("T2: Arena queue name → ARENA", normalize_game_mode(arena_name) == "AREN
 
 classic = {"gameData": {"queue": {"gameMode": "CLASSIC", "type": "PVP"}}}
 check("T3: Classic queue remains CLASSIC", normalize_game_mode(classic) == "CLASSIC")
+classic_named_arena = {
+    "gameData": {
+        "queue": {
+            "gameMode": "CLASSIC",
+            "type": "PVP",
+            "name": "Arena event",
+        }
+    }
+}
+check(
+    "T3b: mode chính CLASSIC thắng tên queue mơ hồ",
+    normalize_game_mode(classic_named_arena) == "CLASSIC",
+)
+malformed_queue_text = {
+    "gameData": {
+        "queue": {
+            "gameMode": "UNKNOWN",
+            "type": "PVP",
+            "name": {"label": "ARENA"},
+        }
+    }
+}
+check(
+    "T3c: field queue sai kiểu không kích hoạt Arena",
+    normalize_game_mode(malformed_queue_text) == "UNKNOWN",
+)
+classic_bad_queue_type = {
+    "gameData": {
+        "queue": {
+            "gameMode": "CLASSIC",
+            "type": {"bad": 1},
+            "name": "Arena event",
+        }
+    }
+}
+check(
+    "T3d: gameMode chính giữ precedence khi type hỏng",
+    normalize_game_mode(classic_bad_queue_type) == "CLASSIC",
+    str(normalize_game_mode(classic_bad_queue_type)),
+)
 check("T4: malformed session → None", normalize_game_mode({}) is None)
 
 
@@ -84,6 +124,27 @@ check(
         True,
     ),
     "set_action_champion gửi sai method, path, body, hoặc raise_on_error",
+)
+
+for invalid_action_id in (None, True, -1, "7", "7/../other", "7?query=other"):
+    invalid_action_client = ActionClient()
+    check(
+        f"T5d: action ID lỗi bị từ chối ({invalid_action_id!r})",
+        invalid_action_client.set_action_champion(invalid_action_id, 53) is False
+        and invalid_action_client.last_request is None,
+        str(invalid_action_client.last_request),
+    )
+huge_action_client = ActionClient()
+huge_action_error = None
+try:
+    huge_action_client.set_action_champion(10**5000, 53)
+except Exception as error:
+    huge_action_error = type(error).__name__
+check(
+    "T5e: action ID quá lớn bị từ chối an toàn",
+    huge_action_error is None
+    and huge_action_client.last_request is None,
+    str((huge_action_error, huge_action_client.last_request)),
 )
 
 
@@ -241,6 +302,17 @@ with tempfile.TemporaryDirectory() as temp_dir:
             == "Basic "
             + base64.b64encode(b"riot:lock-secret").decode("ascii"),
             "connect không đọc đúng process, port, protocol, hoặc password",
+        )
+
+        lockfile.write_text(
+            "LeagueClient:1234:123@evil.example:lock-secret:https\n",
+            encoding="utf-8",
+        )
+        injected_port_client = LCUClient()
+        check(
+            "T22b: connect từ chối port lockfile có dữ liệu URL",
+            injected_port_client.connect() is False
+            and injected_port_client.connected is False,
         )
 
         invalid_lockfile = LCUClient()

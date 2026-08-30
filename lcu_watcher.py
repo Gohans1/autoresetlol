@@ -230,7 +230,7 @@ class LcuWatcher(threading.Thread):
             return False
         if self._action_champion_id(live) != target:
             return False
-        if live.get("completed") is not True and not self._action_is_in_progress(live):
+        if not self._action_is_usable(live):
             return False
         if (
             action_type == "pick"
@@ -337,8 +337,9 @@ class LcuWatcher(threading.Thread):
         if live is None:
             current_action = self._find_my_action(session, "pick", action_id)
             other_action = any(
-                action.get("id") != action_id
+                other_id is not None and other_id != action_id
                 for action in self._pick_phase_actions(session)
+                if (other_id := LcuWatcher._action_id(action)) is not None
             )
             completed_user_pick = (
                 current_action is None
@@ -352,9 +353,7 @@ class LcuWatcher(threading.Thread):
             return False
 
         observed = self._action_champion_id(live)
-        if observed == target and (
-            live.get("completed") is True or self._action_is_in_progress(live)
-        ):
+        if observed == target and self._action_is_usable(live):
             if live_session is not None and self._pick_holders(live_session, target):
                 self._pick_lost(session, generation, target)
                 return True
@@ -504,8 +503,10 @@ class LcuWatcher(threading.Thread):
         if self._stop_event.is_set() or not self.running:
             return
         if config_manager.get("auto_dimmer_switch_enabled") is not True:
+            self._gaming_state = False
             return
         if config_manager.get("dimmer_enabled") is not True:
+            self._gaming_state = False
             return
         in_game = phase in ("ChampSelect", "InProgress")
         if in_game and not self._gaming_state:
@@ -535,6 +536,20 @@ class LcuWatcher(threading.Thread):
         return isinstance(action, dict) and action.get("isInProgress") is True
 
     @staticmethod
+    def _action_groups(session: object) -> list[list[dict]]:
+        """Return only well-formed action groups and action objects."""
+        if not isinstance(session, dict):
+            return []
+        groups = session.get("actions")
+        if not isinstance(groups, list):
+            return []
+        return [
+            [action for action in group if isinstance(action, dict)]
+            for group in groups
+            if isinstance(group, list)
+        ]
+
+    @staticmethod
     def _all_my_actions(session: dict, action_type: str) -> list:
         """MỌI action ban/pick của mình CHƯA complete — kể cả chưa in-progress.
 
@@ -547,12 +562,12 @@ class LcuWatcher(threading.Thread):
         except (KeyError, TypeError):
             return []
         out = []
-        for group in session.get("actions") or []:
+        for group in LcuWatcher._action_groups(session):
             for a in group:
                 if (
                     a.get("type") == action_type
                     and a.get("actorCellId") == local
-                    and not a.get("completed")
+                    and LcuWatcher._action_completed(a) is False
                 ):
                     out.append(a)
         return out
@@ -565,6 +580,44 @@ class LcuWatcher(threading.Thread):
         return champion_id(action.get("championId", 0))
 
     @staticmethod
+    def _action_id(action: object) -> Optional[int]:
+        """Return one action's validated positive integer ID."""
+        if not isinstance(action, dict):
+            return None
+        value = action.get("id")
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return None
+        return value
+
+    @staticmethod
+    def _action_completed(action: object) -> Optional[bool]:
+        """Return completion only for an exact boolean LCU value."""
+        if not isinstance(action, dict):
+            return None
+        value = action.get("completed")
+        if value is True:
+            return True
+        if value is False:
+            return False
+        return None
+
+    @staticmethod
+    def _action_is_pending(action: object) -> bool:
+        """Return True only for an exact uncompleted active action."""
+        return (
+            LcuWatcher._action_completed(action) is False
+            and LcuWatcher._action_is_in_progress(action)
+        )
+
+    @staticmethod
+    def _action_is_usable(action: object) -> bool:
+        """Return True only for an exact completed or pending action."""
+        return (
+            LcuWatcher._action_completed(action) is True
+            or LcuWatcher._action_is_pending(action)
+        )
+
+    @staticmethod
     def _find_my_action(
         session: dict, action_type: str, action_id: int
     ) -> Optional[dict]:
@@ -573,12 +626,12 @@ class LcuWatcher(threading.Thread):
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
             return None
-        for group in session.get("actions") or []:
+        for group in LcuWatcher._action_groups(session):
             for action in group:
                 if (
                     action.get("type") == action_type
                     and action.get("actorCellId") == local
-                    and action.get("id") == action_id
+                    and LcuWatcher._action_id(action) == action_id
                 ):
                     return action
         return None
@@ -590,12 +643,12 @@ class LcuWatcher(threading.Thread):
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
             return False
-        for group in session.get("actions") or []:
+        for group in LcuWatcher._action_groups(session):
             for action in group:
                 if (
                     action.get("type") == action_type
                     and action.get("actorCellId") == local
-                    and action.get("completed")
+                    and LcuWatcher._action_completed(action) is True
                     and LcuWatcher._action_champion_id(action) > 0
                 ):
                     return True
@@ -608,7 +661,7 @@ class LcuWatcher(threading.Thread):
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
             return []
-        groups = session.get("actions") or []
+        groups = LcuWatcher._action_groups(session)
         ban_group_indices = [
             index
             for index, group in enumerate(groups)
@@ -639,7 +692,7 @@ class LcuWatcher(threading.Thread):
                 if (
                     action.get("type") == "pick"
                     and action.get("actorCellId") == local
-                    and not action.get("completed")
+                    and LcuWatcher._action_completed(action) is False
                 ):
                     picks.append(action)
         return picks
@@ -660,7 +713,7 @@ class LcuWatcher(threading.Thread):
                 if (
                     action.get("type") == "pick"
                     and action.get("actorCellId") == local
-                    and action.get("completed")
+                    and LcuWatcher._action_completed(action) is True
                     and LcuWatcher._action_champion_id(action) > 0
                 ):
                     return True
@@ -684,20 +737,28 @@ class LcuWatcher(threading.Thread):
         if not isinstance(my_bans, list) or not isinstance(their_bans, list):
             return False, set()
 
-        revealed = {
+        my_revealed = {
             champion_id(value)
-            for value in [*my_bans, *their_bans]
+            for value in my_bans
             if champion_id(value) > 0
         }
-        if revealed:
-            return True, revealed
+        their_revealed = {
+            champion_id(value)
+            for value in their_bans
+            if champion_id(value) > 0
+        }
+        # Một phía có dữ liệu vẫn là trạng thái reveal dở — phải đủ hai phía.
+        if my_revealed and their_revealed:
+            return True, my_revealed | their_revealed
+        if my_bans or their_bans:
+            return False, set()
 
         # Some client builds keep the summary empty but populate the ban
         # actions before opening the real Pick group. Use that only when a
         # post-ban local Pick action is explicitly active.
         ban_action_ids = {
             LcuWatcher._action_champion_id(action)
-            for group in (session.get("actions") or [])
+            for group in LcuWatcher._action_groups(session)
             for action in group
             if action.get("type") == "ban"
             and LcuWatcher._action_champion_id(action) > 0
@@ -720,7 +781,7 @@ class LcuWatcher(threading.Thread):
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
             return picked
-        for group in session.get("actions") or []:
+        for group in LcuWatcher._action_groups(session):
             for action in group:
                 if action.get("type") != "pick":
                     continue
@@ -756,6 +817,8 @@ class LcuWatcher(threading.Thread):
             ids = set()
             names = {}
             for champion in champions:
+                if not isinstance(champion, dict):
+                    continue
                 cid = champion_id(champion.get("id"))
                 name = str(champion.get("name") or "").strip()
                 if cid > 0:
@@ -828,7 +891,7 @@ class LcuWatcher(threading.Thread):
         if not known or live is None:
             return None
         observed = self._action_champion_id(live)
-        if live.get("completed") is True or not self._action_is_in_progress(live):
+        if not self._action_is_pending(live):
             return None
         if observed > 0:
             if action_type != "pick":
@@ -893,9 +956,7 @@ class LcuWatcher(threading.Thread):
                     f"client báo championId={raw_observed} "
                     f"(ID chuẩn={observed})"
                 )
-                active = self._action_is_in_progress(live) and (
-                    live.get("completed") is not True
-                )
+                active = self._action_is_pending(live)
                 if observed == target and active:
                     return True if self._automation_current(generation) else None
                 if observed == target:
@@ -928,8 +989,8 @@ class LcuWatcher(threading.Thread):
         if self.update_status_callback:
             try:
                 self.update_status_callback(text, color)
-            except Exception:
-                pass
+            except Exception as error:
+                logger.error(f"Status callback failed: {error}")
 
     def _arena_event(
         self, text: str, color: str = "blue", force: bool = False
@@ -1010,10 +1071,10 @@ class LcuWatcher(threading.Thread):
         known, action = self._live_action("ban", action_id)
         if not known or action is None:
             return False
-        if action.get("type") != "ban" or action.get("id") != action_id:
+        if action.get("type") != "ban" or LcuWatcher._action_id(action) != action_id:
             return False
         observed = self._action_champion_id(action)
-        action_active = action.get("completed") is True or self._action_is_in_progress(action)
+        action_active = self._action_is_usable(action)
         if not action_active:
             return False
 
@@ -1094,7 +1155,11 @@ class LcuWatcher(threading.Thread):
                 )
                 return
 
-            known, live = self._live_action("ban", a["id"])
+            action_id = self._action_id(a)
+            if action_id is None:
+                self._arena_event("Ban: action thiếu ID — không PATCH", "orange")
+                return
+            known, live = self._live_action("ban", action_id)
             if not known:
                 self._arena_event("Ban: chưa đọc được action live — không PATCH", "orange")
                 return
@@ -1132,12 +1197,12 @@ class LcuWatcher(threading.Thread):
                 "blue",
             )
             result = self._set_action_champion_verified(
-                "ban", a["id"], target, generation
+                "ban", action_id, target, generation
             )
             if result is None:
                 return
             if result:
-                self._commit_verified_action(generation, "ban", a["id"], target)
+                self._commit_verified_action(generation, "ban", action_id, target)
                 return
             # PATCH fail — giữ action chưa handled; retry đến khi action
             # đóng hoặc chuyển sang Pick thật.
@@ -1200,10 +1265,14 @@ class LcuWatcher(threading.Thread):
             self._arena_event("Pick: action chưa mở — đang chờ phase pick", "orange")
             return  # pick phase chưa mở (đang ban phase) — CHỜ, không handled
         action = actions[0]
+        action_id = self._action_id(action)
+        if action_id is None:
+            self._arena_event("Pick: action thiếu ID — không PATCH", "orange")
+            return
         pending = self._arena_state.pick_pending_action
         pending_target = (
             champion_id(pending[1])
-            if pending is not None and pending[0] == action["id"]
+            if pending is not None and pending[0] == action_id
             else 0
         )
 
@@ -1289,7 +1358,7 @@ class LcuWatcher(threading.Thread):
                     "orange",
                     force=True,
                 )
-        known, live = self._live_action("pick", action["id"])
+        known, live = self._live_action("pick", action_id)
         if not known:
             self._arena_event("Pick: chưa đọc được action live — không PATCH", "orange")
             return
@@ -1337,11 +1406,11 @@ class LcuWatcher(threading.Thread):
             )
             return
         if pending_target > 0 and live_hover == pending_target:
-            if live.get("completed") is True or self._action_is_in_progress(live):
+            if self._action_is_usable(live):
                 self._commit_verified_action(
                     generation,
                     "pick",
-                    action["id"],
+                    action_id,
                     pending_target,
                     after_retry=True,
                 )
@@ -1355,13 +1424,13 @@ class LcuWatcher(threading.Thread):
             "blue",
         )
         result = self._set_action_champion_verified(
-            "pick", action["id"], available[0], generation
+            "pick", action_id, available[0], generation
         )
         if result is None:
             return
         if result:
             self._commit_verified_action(
-                generation, "pick", action["id"], available[0]
+                generation, "pick", action_id, available[0]
             )
             return
 
@@ -1380,7 +1449,7 @@ class LcuWatcher(threading.Thread):
             local = session["localPlayerCellId"]
         except (KeyError, TypeError):
             return holders
-        for group in session.get("actions") or []:
+        for group in LcuWatcher._action_groups(session):
             for action in group:
                 if action.get("type") != "pick":
                     continue

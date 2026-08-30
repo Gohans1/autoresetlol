@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import queue
 import subprocess
@@ -16,6 +17,7 @@ _SEND_TIMEOUT_SECONDS = 20
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_RETRY_DELAY_SECONDS = 1.0
 _DEFAULT_QUEUE_SIZE = 32
+_MAX_DEDUPE_KEYS = 4096
 
 
 @dataclass(frozen=True)
@@ -117,7 +119,7 @@ class HermesNotifier:
         self._stop = threading.Event()
         self._lock = threading.Lock()
         self._closed = False
-        self._dedupe_keys: set[tuple[str, str]] = set()
+        self._dedupe_keys: OrderedDict[tuple[str, str], None] = OrderedDict()
         self._enabled_events: dict[str, bool] = {}
         self._event_generations: dict[str, int] = {}
         self._thread = threading.Thread(
@@ -152,7 +154,10 @@ class HermesNotifier:
             if key and dedupe_token in self._dedupe_keys:
                 return False
             if key:
-                self._dedupe_keys.add(dedupe_token)
+                self._dedupe_keys[dedupe_token] = None
+                self._dedupe_keys.move_to_end(dedupe_token)
+                if len(self._dedupe_keys) > _MAX_DEDUPE_KEYS:
+                    self._dedupe_keys.popitem(last=False)
             item = Notification(
                 event,
                 message,
@@ -163,7 +168,7 @@ class HermesNotifier:
                 self._queue.put_nowait(item)
             except queue.Full:
                 if key:
-                    self._dedupe_keys.discard(dedupe_token)
+                    self._dedupe_keys.pop(dedupe_token, None)
                 logger.warning("Discord notification queue is full: %s", event)
                 return False
         return True
@@ -179,9 +184,11 @@ class HermesNotifier:
                 self._event_generations[event] = (
                     self._event_generations.get(event, 0) + 1
                 )
-                self._dedupe_keys = {
-                    token for token in self._dedupe_keys if token[0] != event
-                }
+                self._dedupe_keys = OrderedDict(
+                    (token, None)
+                    for token in self._dedupe_keys
+                    if token[0] != event
+                )
 
     def close(self, timeout: float = 1.0) -> None:
         """Stop accepting events and give the worker a short shutdown window."""

@@ -303,6 +303,68 @@ def test_restart_retries_mutex_until_previous_instance_exits() -> None:
     assert sleeps == [0.5]
 
 
+def test_native_scroll_uses_os_lines_as_canvas_units() -> None:
+    import gui
+
+    scroll_calls: list[tuple[int, str]] = []
+
+    class FakeCanvas:
+        def yview_scroll(self, amount: int, units: str) -> None:
+            scroll_calls.append((amount, units))
+
+    class FakeScrollable:
+        def __init__(self) -> None:
+            self._parent_canvas = FakeCanvas()
+            self.handler = None
+
+        def bind(self, _event_name: str, handler) -> None:
+            self.handler = handler
+
+        def winfo_children(self) -> list[object]:
+            return []
+
+        def after(self, _delay: int, _callback) -> None:
+            return None
+
+    app = gui.AntiFateApp.__new__(gui.AntiFateApp)
+    app._get_os_scroll_lines = lambda: 3
+    app._on_suggest_scroll = lambda _event: None
+    scrollable = FakeScrollable()
+    gui.AntiFateApp._setup_native_scroll_speed(app, scrollable)
+
+    scrollable.handler(SimpleNamespace(delta=120))
+
+    assert scroll_calls == [(-3, "units")]
+
+
+def test_partial_initialization_closes_runtime_resources() -> None:
+    import gui
+
+    class Closeable:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+        def stop(self) -> None:
+            self.closed = True
+
+    app = gui.AntiFateApp.__new__(gui.AntiFateApp)
+    app.bot = None
+    app.dimmer = Closeable("dimmer")
+    app.notifier = Closeable("notifier")
+    app.arena_watcher = Closeable("watcher")
+    app._set_arena_automation_enabled = lambda _enabled: None
+
+    app._cleanup_partial_initialization()
+
+    assert app.dimmer.closed
+    assert app.notifier.closed
+    assert app.arena_watcher.closed
+
+
 def main() -> None:
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
     app_class = next(
@@ -310,10 +372,34 @@ def main() -> None:
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "AntiFateApp"
     )
-    init = next(
+    mixin_classes = []
+    for path in (
+        ROOT / "gui_arena.py",
+        ROOT / "gui_arena_suggestions.py",
+        ROOT / "gui_dimmer.py",
+        ROOT / "gui_lifecycle.py",
+        ROOT / "gui_status.py",
+    ):
+        mixin_tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        mixin_classes.extend(
+            node for node in mixin_tree.body if isinstance(node, ast.ClassDef)
+        )
+    all_classes = [app_class, *mixin_classes]
+    constructor = next(
         node
         for node in app_class.body
         if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    constructor_calls = {
+        call_name(node)
+        for node in ast.walk(constructor)
+        if isinstance(node, ast.Call)
+    }
+    assert "self._initialize" in constructor_calls
+    init = next(
+        node
+        for node in app_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_initialize"
     )
     calls = [
         (index, call_name(node.value))
@@ -331,7 +417,8 @@ def main() -> None:
     def method_calls(name: str) -> set[str]:
         method = next(
             node
-            for node in app_class.body
+            for app_type in all_classes
+            for node in app_type.body
             if isinstance(node, ast.FunctionDef) and node.name == name
         )
         return {
@@ -359,7 +446,18 @@ def main() -> None:
     assert "normalize_ui_scale" in method_calls("_create_ui_scale_widget")
     assert "normalize_ui_scale" in method_calls("_refresh_arena_validation")
     assert "normalize_ui_scale" in method_calls("_render_arena_live")
-    assert "self._flush_pending_dimmer_save" in method_calls("_restart_app")
+    restart_method = next(
+        node
+        for app_type in all_classes
+        for node in app_type.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_restart_app"
+    )
+    restart_attributes = {
+        node.attr
+        for node in ast.walk(restart_method)
+        if isinstance(node, ast.Attribute)
+    }
+    assert "_flush_pending_dimmer_save" in restart_attributes
     import gui
 
     app = gui.AntiFateApp.__new__(gui.AntiFateApp)
@@ -387,6 +485,8 @@ def main() -> None:
     test_mutex_creation_failure_is_not_single_instance()
     test_startup_exception_returns_nonzero()
     test_restart_retries_mutex_until_previous_instance_exits()
+    test_native_scroll_uses_os_lines_as_canvas_units()
+    test_partial_initialization_closes_runtime_resources()
     print("startup visibility order: PASS")
     print("startup safety helpers: PASS")
     print("toggle save rollback: PASS")

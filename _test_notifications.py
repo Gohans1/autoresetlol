@@ -261,6 +261,21 @@ check(
     str(zero_delay_calls),
 )
 
+# ============ T4d: dedupe memory có giới hạn ============
+notifier = HermesNotifier(
+    runner=lambda _message: True,
+    retry_delay=0,
+    queue_size=notifications._MAX_DEDUPE_KEYS + 2,
+)
+for index in range(notifications._MAX_DEDUPE_KEYS + 1):
+    notifier.notify("test.dedupe.bound", str(index), dedupe_key=f"key:{index}")
+check(
+    "T4d: dedupe key không tăng vô hạn",
+    len(notifier._dedupe_keys) <= notifications._MAX_DEDUPE_KEYS,
+    str(len(notifier._dedupe_keys)),
+)
+notifier.close()
+
 # ============ KẾT LUẬN ============
 notifications.logger.disabled = True
 if FAILURES:

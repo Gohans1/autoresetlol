@@ -24,6 +24,15 @@ _BOOLEAN_DEFAULTS = {
     "discord_notify_in_game": DefaultConfig.DISCORD_NOTIFY_IN_GAME,
 }
 
+_DIMMER_DEFAULTS = {
+    "dimmer_value": DefaultConfig.DIMMER_VALUE,
+    "dimmer_gaming_value": DefaultConfig.DIMMER_GAMING_VALUE,
+    "dimmer_browsing_value": DefaultConfig.DIMMER_BROWSING_VALUE,
+}
+_DIMMER_MIN = 50
+_DIMMER_MAX = 100
+_DIMMER_MODES = ("browsing", "gaming")
+
 
 def _normalize_bool(value: object, default: bool) -> bool:
     """Normalize persisted boolean values without treating non-empty strings as true."""
@@ -51,6 +60,25 @@ def normalize_ui_scale(value: object) -> float:
     if not math.isfinite(scale):
         return float(DefaultConfig.UI_SCALE)
     return max(0.8, min(2.0, scale))
+
+
+def normalize_dimmer_value(
+    value: object,
+    default: int = DefaultConfig.DIMMER_VALUE,
+) -> int:
+    """Normalize a saved brightness value to the supported dimmer range."""
+    if isinstance(value, bool):
+        return int(default)
+    try:
+        brightness = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return int(default)
+    return max(_DIMMER_MIN, min(_DIMMER_MAX, brightness))
+
+
+def normalize_dimmer_mode(value: object) -> str:
+    """Normalize the persisted dimmer mode."""
+    return value if value in _DIMMER_MODES else DefaultConfig.DIMMER_MODE
 
 
 def _normalize_arena_recent(value: object) -> Dict[str, List[int]]:
@@ -85,10 +113,14 @@ def _normalize_arena_names(value: object) -> Dict[str, str]:
     return names
 
 
-def _normalize_arena_value(key: str, value: Any) -> Any:
-    """Keep every Arena ID at the config boundary in canonical form."""
+def _normalize_config_value(key: str, value: Any) -> Any:
+    """Normalize persisted values at the config boundary."""
     if key in _BOOLEAN_DEFAULTS:
         return _normalize_bool(value, _BOOLEAN_DEFAULTS[key])
+    if key in _DIMMER_DEFAULTS:
+        return normalize_dimmer_value(value, _DIMMER_DEFAULTS[key])
+    if key == "dimmer_mode":
+        return normalize_dimmer_mode(value)
     if key == "arena_ban_champ":
         return champion_id(value)
     if key == "arena_pick_chain":
@@ -150,12 +182,16 @@ class BotConfig:
         for key, default in _BOOLEAN_DEFAULTS.items():
             setattr(config, key, _normalize_bool(getattr(config, key), default))
         for key in (
+            "dimmer_value",
+            "dimmer_gaming_value",
+            "dimmer_browsing_value",
+            "dimmer_mode",
             "arena_ban_champ",
             "arena_pick_chain",
             "arena_recent",
             "arena_champion_names",
         ):
-            setattr(config, key, _normalize_arena_value(key, getattr(config, key)))
+            setattr(config, key, _normalize_config_value(key, getattr(config, key)))
         config.ui_scale = normalize_ui_scale(config.ui_scale)
         return config
 
@@ -242,7 +278,7 @@ class ConfigManager:
             return False
         with self._lock:
             previous_value = getattr(self.config, key)
-            setattr(self.config, key, _normalize_arena_value(key, value))
+            setattr(self.config, key, _normalize_config_value(key, value))
             if not save or self.save_config():
                 return True
             setattr(self.config, key, previous_value)

@@ -330,7 +330,11 @@ check("T5b: completed champion=0 → không PATCH", fake_lcu.patches == [], str(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_their=[1])
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [PICK_ACTION]],
+    bans_my=[84],
+    bans_their=[1],
+)
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]  # main=1 (bị ban) → Yasuo=2
 w._tick()
@@ -350,7 +354,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1, 2])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1, 2], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
@@ -377,6 +381,7 @@ fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
 check("T8a: bans chưa lộ → không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
 # bans lộ ra
+fake_lcu.session["bans"]["myTeamBans"] = [84]
 fake_lcu.session["bans"]["theirTeamBans"] = [3]  # Zed bị ban, main Aatrox còn
 w._tick()
 check("T8b: bans lộ → pick main (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
@@ -413,7 +418,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1], bans_their=[84])
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
 check("T9: toggle tắt → không PATCH", fake_lcu.patches == [], str(fake_lcu.patches))
@@ -422,7 +427,7 @@ check("T9: toggle tắt → không PATCH", fake_lcu.patches == [], str(fake_lcu.
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [2, 0, 0, 0]
 fake_lcu.patch_ok = False
@@ -436,7 +441,7 @@ check("T10b: tick sau thành công (20, 2)", fake_lcu.patches == [(20, 2)], str(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [2, 0, 0, 0]
 w._tick()
@@ -444,7 +449,7 @@ check("T11a: session 1 pick (20, 2)", fake_lcu.patches == [(20, 2)], str(fake_lc
 fake_lcu.phase = "Lobby"
 w._tick()  # reset
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1], bans_their=[84])
 w._tick()
 check(
     "T11b: session 2 pick lại (2 lần PATCH)",
@@ -457,7 +462,7 @@ reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
 fake_lcu.session = make_session(
-    actions=[[BAN_ACTION], [action(20, "pick", champion_id=5)]], bans_my=[1]
+    actions=[[BAN_ACTION], [action(20, "pick", champion_id=5)]], bans_my=[1], bans_their=[84]
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [2, 0, 0, 0]
@@ -468,7 +473,7 @@ check("T12: user tự hover → không ghi đè", fake_lcu.patches == [], str(fa
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[2])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[2], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [999, 1, 0, 0]  # 999 không sở hữu → Aatrox=1
 w._tick()
@@ -566,7 +571,7 @@ reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
 fake_lcu.mode = None
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 w._tick()
@@ -576,7 +581,7 @@ check("T15: game_mode None → không PATCH", fake_lcu.patches == [], str(fake_l
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_lcu.owned_raises = True
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
@@ -589,7 +594,7 @@ fake_lcu.owned_raises = False
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 owned_backup = fake_lcu.owned
 fake_lcu.owned = []
 fake_config["auto_pick_enabled"] = True
@@ -602,7 +607,7 @@ fake_lcu.owned = owned_backup
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=None, bans_my=[1])
+fake_lcu.session = make_session(actions=None, bans_my=[1], bans_their=[84])
 del fake_lcu.session["actions"]
 fake_config["auto_ban_enabled"] = True
 fake_config["auto_pick_enabled"] = True
@@ -627,7 +632,7 @@ check("T18: nhiều ban action → PATCH action đầu (10, 99)", fake_lcu.patch
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 fake_lcu.patch_ok = False
@@ -675,6 +680,7 @@ fake_lcu.session = make_session(
         [action(20, "pick", in_progress=False)],  # pick chưa mở
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
@@ -690,6 +696,7 @@ fake_lcu.session = make_session(
         [action(20, "pick", in_progress=True)],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check("T21d: pick mở → PATCH (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
@@ -698,7 +705,7 @@ check("T21d: pick mở → PATCH (20, 1)", fake_lcu.patches == [(20, 1)], str(fa
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
@@ -706,6 +713,7 @@ check("T21e: chưa có pick action → không đánh dấu handled", w._arena_st
 fake_lcu.session = make_session(
     actions=[[BAN_ACTION], [PICK_ACTION]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check("T21f: pick action xuất hiện sau đó → PATCH (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
@@ -733,7 +741,7 @@ reset_state()
 w = make_watcher()
 w.set_automation_enabled(False)
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 w._tick()
@@ -746,7 +754,7 @@ check("T23b: bật lại → PATCH pick", fake_lcu.patches == [(20, 1)], str(fak
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 fake_lcu.mutate_pick_on_second_read = True
@@ -784,7 +792,7 @@ check("T26: disable lặp không phát event lặp", len(ARENA_EVENTS) == 1, str
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
@@ -798,6 +806,7 @@ fake_lcu.session = make_session(
         [action(21, "pick", actor=9, champion_id=1)],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check("T27c: phát hiện bị lấy", w._arena_state.pick_picked_id == 0 and w._arena_state.pick_handled is False, str((w._arena_state.pick_picked_id, w._arena_state.pick_handled)))
@@ -813,7 +822,7 @@ check("T27e: nhảy sang dự bị (20, 2)", fake_lcu.patches[-1] == (20, 2), st
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
@@ -822,6 +831,7 @@ check("T28a: bot hover main (20, 1)", fake_lcu.patches == [(20, 1)], str(fake_lc
 fake_lcu.session = make_session(
     actions=[[BAN_ACTION], [action(20, "pick", champion_id=4)]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check("T28b: dừng hẳn, không giành lại", w._arena_state.pick_handled is True and w._arena_state.pick_picked_id == 0, str((w._arena_state.pick_handled, w._arena_state.pick_picked_id)))
@@ -840,6 +850,7 @@ fake_lcu.session = make_session(
         [action(21, "pick", actor=9, champion_id=1)],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -855,7 +866,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
@@ -871,7 +882,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[1], bans_their=[84])
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 w._tick()
@@ -895,7 +906,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 fake_lcu.owned_raises = True
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -911,7 +922,7 @@ fake_lcu.owned_raises = False
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 generation = w._automation_snapshot()
 if generation is None:
     raise AssertionError("automation generation must be active in the race test")
@@ -941,7 +952,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 generation = w._automation_snapshot()
 if generation is None:
     raise AssertionError("automation generation must be active in the blocked PATCH test")
@@ -991,7 +1002,7 @@ check(
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
-fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3])
+fake_lcu.session = make_session(actions=[[BAN_ACTION], [PICK_ACTION]], bans_my=[3], bans_their=[84])
 generation = w._automation_snapshot()
 if generation is None:
     raise AssertionError("automation generation must be active in callback stop test")
@@ -1043,6 +1054,7 @@ fake_lcu.session = make_session(
         [PICK_ACTION],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check(
@@ -1060,6 +1072,7 @@ fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3)], [action(20, "pick", champion_id=1)]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 w._arena_state.pick_picked_id = 1
@@ -1068,6 +1081,7 @@ w._arena_state.pick_handled = True
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check(
@@ -1091,6 +1105,7 @@ fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3)], [action(20, "pick", champion_id=1)]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 w._arena_state.pick_picked_id = 1
@@ -1098,6 +1113,7 @@ w._arena_state.pick_handled = True
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 real_holders = lcu_watcher.LcuWatcher._pick_holders
 
@@ -1134,6 +1150,7 @@ fake_lcu.session = make_session(
         [action(20, "pick")],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -1165,6 +1182,7 @@ fake_lcu.apply_patch_to_session = False
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
@@ -1186,6 +1204,7 @@ fake_lcu.apply_patch_to_session = False
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
@@ -1217,6 +1236,7 @@ fake_lcu.apply_patch_to_session = False
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
@@ -1246,6 +1266,7 @@ fake_lcu.apply_patch_to_session = False
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
@@ -1274,6 +1295,7 @@ fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check("T38a: bot first pick", fake_lcu.patches == [(20, 1)], str(fake_lcu.patches))
@@ -1284,12 +1306,14 @@ fake_lcu.session = make_session(
         [action(21, "pick", actor=9, champion_id=1)],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check("T38b: teammate takes first pick", 1 in w._arena_state.pick_attempted_ids, str(w._arena_state))
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick", champion_id=1)]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check(
@@ -1310,6 +1334,7 @@ fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check(
@@ -1324,6 +1349,7 @@ fake_lcu.session = make_session(
         [action(21, "pick", actor=9, champion_id=1)],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 w._tick()
 check(
@@ -1342,10 +1368,12 @@ fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
 stale_session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[84],
     bans_their=[3],
 )
 fresh_session = make_session(
     actions=[[action(10, "ban", champion_id=3, completed=True, in_progress=False)], [action(20, "pick")]],
+    bans_my=[84],
     bans_their=[1],
 )
 fake_lcu.session = fresh_session
@@ -1411,6 +1439,7 @@ fake_lcu.session = make_session(
         ],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -1437,6 +1466,7 @@ fake_lcu.session = make_session(
         ],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -1511,6 +1541,7 @@ fake_lcu.session = make_session(
         [action(20, "pick")],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 stale_session = copy.deepcopy(fake_lcu.session)
 original_session_reader = fake_lcu.champ_select_session
@@ -1587,6 +1618,7 @@ fake_lcu.session = make_session(
         [action(20, "pick")],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -1619,6 +1651,7 @@ stale_pick_session = make_session(
         [action(20, "pick")],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_lcu.session = make_session(
     actions=[
@@ -1629,6 +1662,7 @@ fake_lcu.session = make_session(
         ],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -1653,6 +1687,7 @@ fake_lcu.session = make_session(
         [action(20, "pick")],
     ],
     bans_my=[3],
+    bans_their=[84],
 )
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 2, 0, 0]
@@ -1712,12 +1747,142 @@ check(
     and w._gaming_state is False,
     str((dimmer_transitions, w._gaming_state)),
 )
+reset_state()
+w = make_watcher()
+fake_config.update(
+    {
+        "auto_dimmer_switch_enabled": True,
+        "dimmer_enabled": True,
+    }
+)
+dimmer_transitions = []
+w.on_gaming_callback = lambda: dimmer_transitions.append("gaming")
+w._auto_dimmer("ChampSelect")
+fake_config["auto_dimmer_switch_enabled"] = False
+w._auto_dimmer("Lobby")
+fake_config["auto_dimmer_switch_enabled"] = True
+w._auto_dimmer("ChampSelect")
+check(
+    "T49d: bật lại auto switch sẽ áp dụng lại mode hiện tại",
+    dimmer_transitions == ["gaming", "gaming"]
+    and w._gaming_state is True,
+    str((dimmer_transitions, w._gaming_state)),
+)
 check(
     "T50: action thiếu isInProgress phải chờ",
     lcu_watcher.LcuWatcher._action_is_in_progress(
         {"type": "pick", "completed": False}
     )
     is False,
+)
+
+partial_bans = make_session(bans_my=[53], bans_their=[])
+partial_revealed, partial_ids = lcu_watcher.LcuWatcher._revealed_banned_ids(partial_bans)
+check(
+    "T52: ban một phía chưa được coi là đã lộ",
+    partial_revealed is False and partial_ids == set(),
+    str((partial_revealed, partial_ids)),
+)
+complete_bans = make_session(bans_my=[53], bans_their=[84])
+complete_revealed, complete_ids = lcu_watcher.LcuWatcher._revealed_banned_ids(complete_bans)
+check(
+    "T52b: ban hai phía đã lộ được chấp nhận",
+    complete_revealed is True and complete_ids == {53, 84},
+    str((complete_revealed, complete_ids)),
+)
+malformed_actions = make_session(actions=[[None, "bad"], None])
+check(
+    "T53: action LCU sai kiểu bị bỏ qua an toàn",
+    lcu_watcher.LcuWatcher._all_my_actions(malformed_actions, "ban") == []
+    and lcu_watcher.LcuWatcher._find_my_action(malformed_actions, "ban", 1) is None
+    and lcu_watcher.LcuWatcher._post_ban_groups(malformed_actions) == []
+    and lcu_watcher.LcuWatcher._pick_phase_actions(malformed_actions) == []
+    and lcu_watcher.LcuWatcher._picked_by_others_ids(malformed_actions) == set()
+    and lcu_watcher.LcuWatcher._pick_holders(malformed_actions, 53) == []
+    and lcu_watcher.LcuWatcher._revealed_banned_ids(malformed_actions) == (False, set()),
+    str(malformed_actions),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[
+        [{"type": "ban", "actorCellId": 0, "isInProgress": True}],
+        [action(20, "pick")],
+    ],
+    bans_my=[3],
+    bans_their=[84],
+)
+fake_config.update(
+    {
+        "auto_ban_enabled": True,
+        "arena_ban_champ": 99,
+        "auto_pick_enabled": False,
+    }
+)
+missing_id_error = None
+try:
+    w._tick()
+except Exception as error:
+    missing_id_error = type(error).__name__
+check(
+    "T54: action thiếu ID không làm watcher crash",
+    missing_id_error is None and fake_lcu.patches == [],
+    str((missing_id_error, fake_lcu.patches)),
+)
+
+malformed_completion = make_session(
+    actions=[
+        [action(60, "ban", completed="false", champion_id=53)],
+        [action(61, "pick", completed=None, in_progress=True)],
+    ]
+)
+check(
+    "T55: completed sai kiểu không được coi là đã hoàn tất",
+    lcu_watcher.LcuWatcher._has_my_completed_action(malformed_completion, "ban")
+    is False,
+    str(malformed_completion),
+)
+check(
+    "T55b: completed thiếu giá trị không được coi là action đang chờ",
+    lcu_watcher.LcuWatcher._all_my_actions(malformed_completion, "ban") == []
+    and lcu_watcher.LcuWatcher._pick_phase_actions(malformed_completion) == [],
+    str(malformed_completion),
+)
+bool_id_action = action(True, "ban", in_progress=True)
+bool_id_session = make_session(actions=[[bool_id_action]])
+check(
+    "T56: bool action ID không khớp ID số",
+    lcu_watcher.LcuWatcher._find_my_action(bool_id_session, "ban", 1) is None,
+    str(bool_id_session),
+)
+
+
+reset_state()
+w = make_watcher()
+fake_lcu.session = make_session(
+    actions=[[action(70, "ban", completed="false", in_progress=True)]]
+)
+generation = w._automation_snapshot()
+live_patch_result = w._set_action_champion_verified("ban", 70, 99, generation)
+check(
+    "T57a: completed malformed chặn PATCH live",
+    live_patch_result is None and fake_lcu.patches == [],
+    str((live_patch_result, fake_lcu.patches)),
+)
+
+reset_state()
+w = make_watcher()
+fake_lcu.session = make_session(
+    actions=[[action(71, "pick", completed="false", champion_id=1, in_progress=True)]]
+)
+generation = w._automation_snapshot()
+live_commit_result = w._commit_verified_action(generation, "pick", 71, 1)
+check(
+    "T57b: completed malformed chặn commit live",
+    live_commit_result is False and w._arena_state.pick_handled is False,
+    str((live_commit_result, w._arena_state.pick_handled)),
 )
 
 

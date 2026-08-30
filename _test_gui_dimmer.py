@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gui
+import os
 import subprocess
 from types import SimpleNamespace
 
@@ -36,6 +37,53 @@ class FakeSlider:
 
     def configure(self, **kwargs: object) -> None:
         self.configurations.append(kwargs)
+
+
+class ExplodingVariable:
+    def get(self) -> bool:
+        raise AssertionError("automatic dimmer checked Tk state from a worker")
+
+
+def test_background_callback_is_posted_to_ui_thread() -> None:
+    app = gui.AntiFateApp.__new__(gui.AntiFateApp)
+    scheduled: list[tuple[int, object, tuple[object, ...]]] = []
+    app._ui_callbacks_enabled = True
+    app.after = lambda delay, callback, *args: scheduled.append(
+        (delay, callback, args)
+    )
+    received: list[str] = []
+
+    assert app._post_to_ui(received.append, "ready") is True
+    assert len(scheduled) == 1
+    delay, callback, args = scheduled[0]
+    assert delay == 0
+    callback(*args)
+    assert received == ["ready"]
+
+    app._ui_callbacks_enabled = False
+    assert app._post_to_ui(received.append, "stale") is False
+    assert received == ["ready"]
+
+    app._ui_callbacks_enabled = True
+    app._post_to_ui(received.append, "queued")
+    app._ui_callbacks_enabled = False
+    _, callback, args = scheduled[-1]
+    callback(*args)
+    assert received == ["ready"]
+
+
+def test_automatic_dimmer_gate_uses_thread_safe_config_state() -> None:
+    app = gui.AntiFateApp.__new__(gui.AntiFateApp)
+    app.dimmer_enabled_var = ExplodingVariable()
+    original_get = gui.config_manager.get
+    try:
+        gui.config_manager.get = lambda key, default=None: {
+            "auto_dimmer_switch_enabled": True,
+            "dimmer_enabled": True,
+        }.get(key, default)
+        assert app._automatic_dimmer_allowed() is True
+    finally:
+        gui.config_manager.get = original_get
 
 
 def test_brightness_save_is_debounced() -> None:
@@ -142,6 +190,7 @@ def test_automatic_mode_save_failure_is_not_reported_as_saved() -> None:
     app.after = lambda delay, callback: "timer-1"
     config = {
         "auto_dimmer_switch_enabled": True,
+        "dimmer_enabled": True,
         "dimmer_mode": "browsing",
         "dimmer_browsing_value": 70,
         "dimmer_gaming_value": 90,
@@ -414,7 +463,95 @@ def test_closing_flushes_and_stops_runtime_components() -> None:
     assert app.bot.on_stop_callback is None
 
 
+def test_closing_restores_dimmer_after_cleanup_error() -> None:
+    app = gui.AntiFateApp.__new__(gui.AntiFateApp)
+    app._beacon_pulse_id = None
+    app._arena_validation_after_id = None
+    app._dimmer_watchdog_id = None
+    app._flush_pending_dimmer_save = lambda: None
+    app._flush_pending_arena_save = lambda: None
+    app._set_arena_automation_enabled = lambda _enabled: (
+        (_ for _ in ()).throw(RuntimeError("disable failed"))
+    )
+    app.bot = None
+    app.arena_watcher = SimpleNamespace(stop=lambda: None)
+    app.notifier = SimpleNamespace(close=lambda: None)
+    app.destroy = lambda: None
+
+    class TrackingDimmer:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    app.dimmer = TrackingDimmer()
+    original_exit = os._exit
+    os._exit = lambda code: (_ for _ in ()).throw(SystemExit(code))
+    try:
+        try:
+            app.on_closing()
+        except SystemExit as error:
+            assert error.code == 0
+    finally:
+        os._exit = original_exit
+
+    assert app.dimmer.closed is True
+
+
+def test_restart_stops_all_workers_and_invalidates_callbacks() -> None:
+    app = gui.AntiFateApp.__new__(gui.AntiFateApp)
+    events: list[str] = []
+    app._bot_generation = 7
+    app._bot_stopping = False
+    app._flush_pending_dimmer_save = lambda: events.append("flush dimmer")
+    app._flush_pending_arena_save = lambda: events.append("flush arena")
+    app._set_arena_automation_enabled = lambda enabled: events.append(
+        f"automation {enabled}"
+    )
+
+    class FakeBot:
+        on_stop_callback = object()
+        on_success_callback = object()
+        on_champ_select_callback = object()
+
+        def stop(self) -> None:
+            events.append("bot")
+
+    app.bot = FakeBot()
+    app.arena_watcher = SimpleNamespace(stop=lambda: events.append("watcher"))
+    app.notifier = SimpleNamespace(close=lambda: events.append("notifier"))
+    app.dimmer = SimpleNamespace(close=lambda: events.append("dimmer"))
+    app.destroy = lambda: events.append("destroy")
+
+    original_popen = subprocess.Popen
+    try:
+        subprocess.Popen = lambda *args, **kwargs: events.append("popen")
+        app._restart_app()
+    finally:
+        subprocess.Popen = original_popen
+
+    assert app._bot_stopping is True
+    assert app._bot_generation == 8
+    assert app.bot.on_stop_callback is None
+    assert app.bot.on_success_callback is None
+    assert app.bot.on_champ_select_callback is None
+    assert events == [
+        "flush dimmer",
+        "flush arena",
+        "automation False",
+        "bot",
+        "watcher",
+        "notifier",
+        "dimmer",
+        "popen",
+        "destroy",
+    ]
+
+
 def main() -> None:
+    test_background_callback_is_posted_to_ui_thread()
+    test_automatic_dimmer_gate_uses_thread_safe_config_state()
     test_brightness_save_is_debounced()
     test_failed_debounced_save_stays_dirty_for_later_retry()
     test_automatic_mode_save_failure_is_not_reported_as_saved()
@@ -425,6 +562,8 @@ def main() -> None:
     test_restart_flushes_pending_brightness_before_destroy()
     test_watchdog_reapplies_after_two_display_drifts()
     test_closing_flushes_and_stops_runtime_components()
+    test_closing_restores_dimmer_after_cleanup_error()
+    test_restart_stops_all_workers_and_invalidates_callbacks()
     print("dimmer save debounce: PASS")
     print("dimmer mode writes: PASS")
     print("dimmer disabled guard: PASS")

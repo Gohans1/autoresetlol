@@ -46,13 +46,25 @@ def normalize_game_mode(session: object) -> Optional[str]:
     if not isinstance(queue, dict):
         return None
 
-    raw_mode = str(queue.get("gameMode") or "").upper()
-    queue_type = str(queue.get("type") or "").upper()
-    queue_text = " ".join(
-        str(queue.get(key) or "").upper()
-        for key in ("name", "shortName", "description", "detailedDescription")
+    raw_mode_value = queue.get("gameMode")
+    queue_type_value = queue.get("type")
+    if raw_mode_value is not None and not isinstance(raw_mode_value, str):
+        return None
+    raw_mode = raw_mode_value.strip().upper() if raw_mode_value else ""
+    queue_type = (
+        queue_type_value.strip().upper()
+        if isinstance(queue_type_value, str)
+        else ""
     )
-    if raw_mode == "CHERRY" or queue_type == "CHERRY" or "ARENA" in queue_text:
+    queue_text_parts = []
+    for key in ("name", "shortName", "description", "detailedDescription"):
+        value = queue.get(key)
+        if isinstance(value, str):
+            queue_text_parts.append(value.strip().upper())
+    queue_text = " ".join(queue_text_parts)
+    if raw_mode and raw_mode != "UNKNOWN":
+        return "ARENA" if raw_mode == "CHERRY" else raw_mode
+    if queue_type == "CHERRY" or "ARENA" in queue_text:
         return "ARENA"
     return raw_mode or None
 
@@ -110,7 +122,15 @@ class LCUClient:
                         _, _, port, password, protocol = parts[:5]
                         if protocol not in ("https", "http"):
                             continue
-                        self._base = f"{protocol}://127.0.0.1:{port}"
+                        if not port.isdecimal():
+                            continue
+                        try:
+                            port_number = int(port)
+                        except (ValueError, OverflowError):
+                            continue
+                        if not 1 <= port_number <= 65535:
+                            continue
+                        self._base = f"{protocol}://127.0.0.1:{port_number}"
                         self._auth = _basic_auth("riot", password)
                         self._lockfile_mtime = mtime
                         self._connection_generation += 1
@@ -264,24 +284,39 @@ class LCUClient:
         Dùng ID Champ Select chuẩn; LCU inventory có thể trả alias Arena 60000+.
         Dùng raise_on_error: PATCH hợp lệ có thể trả 204/body rỗng.
         """
+        raw_action_id = action_id
+        if isinstance(raw_action_id, bool):
+            logger.warning("LCU PATCH rejected: invalid action ID")
+            return False
+        if isinstance(raw_action_id, int):
+            normalized_action_id = raw_action_id
+        else:
+            logger.warning("LCU PATCH rejected: invalid action ID")
+            return False
+        if normalized_action_id <= 0:
+            logger.warning("LCU PATCH rejected: invalid action ID")
+            return False
+
         target = canonical_champion_id(champion_id)
         if target <= 0:
-            logger.warning(
-                f"LCU PATCH /lol-champ-select/v1/session/actions/{action_id} "
-                "rejected: invalid champion ID"
-            )
+            logger.warning("LCU PATCH rejected: invalid champion ID")
+            return False
+        try:
+            action_path = f"/lol-champ-select/v1/session/actions/{normalized_action_id}"
+        except (ValueError, OverflowError):
+            logger.warning("LCU PATCH rejected: action ID is too large")
             return False
         try:
             self.request(
                 "PATCH",
-                f"/lol-champ-select/v1/session/actions/{action_id}",
+                action_path,
                 {"championId": target},
                 raise_on_error=True,
             )
             return True
         except LCUError as error:
             logger.warning(
-                f"LCU PATCH /lol-champ-select/v1/session/actions/{action_id} "
+                f"LCU PATCH /lol-champ-select/v1/session/actions/{normalized_action_id} "
                 f"rejected: {error}"
             )
             return False

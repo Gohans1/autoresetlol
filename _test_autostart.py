@@ -230,6 +230,7 @@ def main() -> None:
         windows.sys.argv = original_argv
 
     import gui
+    import gui_lifecycle
 
     class FakeVariable:
         def __init__(self, value: bool) -> None:
@@ -245,36 +246,36 @@ def main() -> None:
     app.auto_startup_enabled_var = FakeVariable(True)
     config_writes: list[tuple[object, object]] = []
     original_set = gui.config_manager.set
-    original_autostart = gui.set_autostart
-    original_snapshot = gui.get_autostart_snapshot
+    original_autostart = gui_lifecycle.set_autostart
+    original_snapshot = gui_lifecycle.get_autostart_snapshot
     try:
         gui.config_manager.set = lambda *args, **kwargs: config_writes.append(args)
-        gui.set_autostart = lambda *args, **kwargs: False
-        gui.get_autostart_snapshot = lambda _app_name: object()
+        gui_lifecycle.set_autostart = lambda *args, **kwargs: False
+        gui_lifecycle.get_autostart_snapshot = lambda _app_name: object()
         app.toggle_startup()
         assert config_writes == []
         assert app.auto_startup_enabled_var.get() is False
     finally:
         gui.config_manager.set = original_set
-        gui.set_autostart = original_autostart
-        gui.get_autostart_snapshot = original_snapshot
+        gui_lifecycle.set_autostart = original_autostart
+        gui_lifecycle.get_autostart_snapshot = original_snapshot
 
     app = gui.AntiFateApp.__new__(gui.AntiFateApp)
     app.auto_startup_enabled_var = FakeVariable(True)
     original_set = gui.config_manager.set
-    original_autostart = gui.set_autostart
-    original_snapshot = gui.get_autostart_snapshot
-    original_restore = gui.restore_autostart_snapshot
+    original_autostart = gui_lifecycle.set_autostart
+    original_snapshot = gui_lifecycle.get_autostart_snapshot
+    original_restore = gui_lifecycle.restore_autostart_snapshot
     autostart_calls: list[dict[str, object]] = []
     restore_calls: list[object] = []
     startup_snapshot = object()
     try:
         gui.config_manager.set = lambda *args, **kwargs: False
-        gui.set_autostart = lambda *args, **kwargs: (
+        gui_lifecycle.set_autostart = lambda *args, **kwargs: (
             autostart_calls.append(kwargs) or True
         )
-        gui.get_autostart_snapshot = lambda _app_name: startup_snapshot
-        gui.restore_autostart_snapshot = lambda snapshot: (
+        gui_lifecycle.get_autostart_snapshot = lambda _app_name: startup_snapshot
+        gui_lifecycle.restore_autostart_snapshot = lambda snapshot: (
             restore_calls.append(snapshot) or True
         )
         app.toggle_startup()
@@ -283,9 +284,9 @@ def main() -> None:
         assert app.auto_startup_enabled_var.get() is False
     finally:
         gui.config_manager.set = original_set
-        gui.set_autostart = original_autostart
-        gui.get_autostart_snapshot = original_snapshot
-        gui.restore_autostart_snapshot = original_restore
+        gui_lifecycle.set_autostart = original_autostart
+        gui_lifecycle.get_autostart_snapshot = original_snapshot
+        gui_lifecycle.restore_autostart_snapshot = original_restore
 
     app = gui.AntiFateApp.__new__(gui.AntiFateApp)
     app.dimmer_mode_segment = SimpleNamespace(set=lambda _value: None)
@@ -309,14 +310,14 @@ def main() -> None:
     }
     original_get = gui.config_manager.get
     original_set = gui.config_manager.set
-    original_state = gui.get_autostart_state
+    original_state = gui_lifecycle.get_autostart_state
     state_sync: list[tuple[tuple[object, ...], dict[str, object]]] = []
     try:
         gui.config_manager.get = lambda key: config_values.get(key)
         gui.config_manager.set = lambda *args, **kwargs: (
             state_sync.append((args, kwargs)) or True
         )
-        gui.get_autostart_state = lambda _app_name: True
+        gui_lifecycle.get_autostart_state = lambda _app_name: True
         app.load_settings()
         assert app.auto_startup_enabled_var.get() is True
         assert state_sync == [
@@ -325,7 +326,7 @@ def main() -> None:
     finally:
         gui.config_manager.get = original_get
         gui.config_manager.set = original_set
-        gui.get_autostart_state = original_state
+        gui_lifecycle.get_autostart_state = original_state
 
     print("startup effective-state load: PASS")
     print("startup approval synchronization: PASS")

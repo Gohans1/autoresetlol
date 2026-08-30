@@ -57,6 +57,22 @@ def test_persisted_boolean_values_are_normalized() -> None:
     assert {key: getattr(malformed, key) for key in defaults} == defaults
 
 
+def test_persisted_dimmer_values_are_normalized() -> None:
+    malformed = BotConfig.from_dict(
+        {
+            "dimmer_value": "oops",
+            "dimmer_gaming_value": 10,
+            "dimmer_browsing_value": 150,
+            "dimmer_mode": "invalid",
+        }
+    )
+
+    assert malformed.dimmer_value == DefaultConfig.DIMMER_VALUE
+    assert malformed.dimmer_gaming_value == 50
+    assert malformed.dimmer_browsing_value == 100
+    assert malformed.dimmer_mode == DefaultConfig.DIMMER_MODE
+
+
 def test_config_set_normalizes_boolean_values() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         manager = ConfigManager(str(Path(temp_dir) / "config.json"))
@@ -153,12 +169,14 @@ def test_get_waits_for_transactional_set() -> None:
 def main() -> None:
     test_ui_scale_normalization()
     test_persisted_boolean_values_are_normalized()
+    test_persisted_dimmer_values_are_normalized()
     test_config_set_normalizes_boolean_values()
     test_save_keeps_previous_file_when_replace_fails()
     test_failed_set_restores_memory_and_disk_state()
     test_get_waits_for_transactional_set()
     print("config validation: PASS")
     print("boolean config normalization: PASS")
+    print("dimmer config normalization: PASS")
     print("atomic config save: PASS")
     print("config set rollback: PASS")
     print("config read lock: PASS")
