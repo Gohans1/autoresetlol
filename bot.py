@@ -23,7 +23,7 @@ from logger import logger
 from utils.lcu import lcu
 
 # Sau accept, client mất vài giây để nhảy sang ChampSelect — trong khoảng
-# này phase vẫn "Matchmaking"/"Lobby" là BÌNH THƯỜNG. Chỉ coi là dodge
+# này phase vẫn "Matchmaking"/"Lobby"/"ReadyCheck" là BÌNH THƯỜNG. Chỉ coi là dodge
 # khi phase quay lại queue sau khoảng grace này.
 VERIFY_GRACE = 5
 
@@ -190,7 +190,7 @@ class AntiFateBot(threading.Thread):
         self.update_status_callback(UIStatus.VERIFYING.format(remaining), "purple")
 
         # Dodge / decline: phase quay lại queue sau grace period.
-        if phase in ("Matchmaking", "Lobby"):
+        if phase in ("Matchmaking", "Lobby", "ReadyCheck"):
             ready_check = lcu.ready_check()
             if self._stop_event.is_set() or not self.running:
                 return
@@ -213,7 +213,7 @@ class AntiFateBot(threading.Thread):
                 self._handle_searching(phase, ready_check=ready_check)
                 return
 
-            if elapsed >= VERIFY_GRACE:
+            if phase in ("Matchmaking", "Lobby") and elapsed >= VERIFY_GRACE:
                 logger.info(
                     "Dodge/decline detected (ChampSelect -> queue). "
                     "Client requeues itself."

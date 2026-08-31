@@ -226,6 +226,42 @@ check(
     str(fake_lcu.ready_check_calls),
 )
 
+# ============ T5j: trận mới ở phase ReadyCheck trong grace của trận cũ ============
+b = make_bot()
+b.running = True
+fake_lcu.phase = "ReadyCheck"
+fake_lcu.ready_state = "InProgress"
+fake_lcu.player_response = "None"
+b._tick()  # accept trận cũ
+check("T5j1: accept trận cũ ở ReadyCheck", fake_lcu.accept_calls == 1, str(fake_lcu.accept_calls))
+b._verify_started_at = time.time() - 1
+fake_lcu.player_response = "None"  # popup trận mới xuất hiện ngay
+b._tick()
+check(
+    "T5j2: accept trận mới ở ReadyCheck",
+    fake_lcu.accept_calls == 2,
+    str(fake_lcu.accept_calls),
+)
+check("T5j3: trận mới ở ReadyCheck chuyển sang verify", b._verify_started_at is not None)
+
+# ============ T5k: ReadyCheck cũ đã accept vẫn phải chờ người khác ============
+b = make_bot()
+b.running = True
+fake_lcu.phase = "ReadyCheck"
+fake_lcu.ready_state = "InProgress"
+fake_lcu.player_response = "None"
+b._tick()  # accept trận cũ
+check("T5k1: accept trận cũ trước khi chờ", fake_lcu.accept_calls == 1, str(fake_lcu.accept_calls))
+b._verify_started_at = time.time() - (bot.VERIFY_GRACE + 1)
+fake_lcu.player_response = "Accepted"
+b._tick()
+check(
+    "T5k2: ReadyCheck cũ không bị coi là dodge",
+    b._verify_started_at is not None,
+    str(b._verify_started_at),
+)
+check("T5k3: ReadyCheck cũ không accept lại", fake_lcu.accept_calls == 1, str(fake_lcu.accept_calls))
+
 # ============ T6: trong grace, phase Matchmaking là BÌNH THƯỜNG ============
 b = make_bot()
 b.running = True
