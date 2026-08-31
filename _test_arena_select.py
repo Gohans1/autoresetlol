@@ -1927,6 +1927,27 @@ def test_owned_ids_cache_expiry_and_error_state() -> None:
 
 test_owned_ids_cache_expiry_and_error_state()
 
+
+def test_owned_ids_notifies_roster_callback() -> None:
+    reset_state()
+    fake_lcu.owned_raises = False
+    fake_lcu.owned = [{"id": 1, "name": "Aatrox"}]
+    updates = []
+    watcher = lcu_watcher.LcuWatcher(
+        roster_callback=lambda roster: updates.append(roster),
+    )
+    result = watcher._owned_ids()
+    check(
+        "T58: roster watcher báo dữ liệu mới cho giao diện",
+        result == {1}
+        and len(updates) == 1
+        and updates[0] == [{"id": 1, "name": "Aatrox"}],
+        str((result, updates)),
+    )
+
+
+test_owned_ids_notifies_roster_callback()
+
 print()
 if FAILURES:
     print(f"FAILED: {len(FAILURES)} test thất bại: {FAILURES}")

@@ -88,6 +88,7 @@ class LcuWatcher(threading.Thread):
         arena_event_callback=None,
         connection_callback=None,
         notification_callback=None,
+        roster_callback=None,
     ):
         super().__init__(daemon=True)
         self.update_status_callback = update_status_callback
@@ -96,6 +97,7 @@ class LcuWatcher(threading.Thread):
         self.arena_event_callback = arena_event_callback
         self.connection_callback = connection_callback
         self.notification_callback = notification_callback
+        self.roster_callback = roster_callback
         self._last_connection_state: Optional[bool] = None
         self._stop_event = threading.Event()
         self._lifecycle_lock = threading.Lock()
@@ -833,6 +835,11 @@ class LcuWatcher(threading.Thread):
         self._owned_cache = ids
         self._owned_names = names
         self._owned_cache_at = now
+        if self.roster_callback:
+            try:
+                self.roster_callback(champions)
+            except Exception as error:
+                logger.error(f"Roster callback failed: {error}")
         return ids
 
     def _champ_name(self, cid: int) -> str:

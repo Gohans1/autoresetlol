@@ -161,6 +161,9 @@ class AntiFateApp(
                 self._on_arena_connection_changed, connected
             ),
             notification_callback=self.notifier.notify,
+            roster_callback=lambda owned: self._post_to_ui(
+                self._on_arena_roster_update, owned
+            ),
         )
         self._show_ready_window()
 

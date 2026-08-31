@@ -144,6 +144,45 @@ def test_failed_roster_post_retries_on_connection() -> None:
     )
 
 
+def test_watcher_roster_update_clears_stale_ui_error() -> None:
+    app = AntiFateApp.__new__(AntiFateApp)
+    app._arena_fetch_gen = 4
+    app._arena_client_connected = True
+    app._arena_roster_known = False
+    app._arena_roster_loading = False
+    app._arena_roster_error = True
+    app._arena_owned = []
+    app._arena_owned_ids = set()
+    app._arena_cached_names = {}
+    app._arena_loaded_ids = {}
+    app._arena_display_to_id = {}
+    app._arena_display_to_id_normalized = {}
+    app.arena_combos = {}
+    setattr(app, "_set_arena_client_status", lambda connected: None)
+    setattr(app, "_refresh_arena_validation", lambda force_errors=False: [])
+    setattr(app, "_save_arena_champion_names", lambda save=True: True)
+
+    gui_arena.ArenaUiMixin._on_arena_roster_update(
+        app,
+        [{"id": 1, "name": "Aatrox"}],
+    )
+    check(
+        "T5: watcher roster mới xóa lỗi roster giao diện",
+        app._arena_roster_known
+        and app._arena_roster_loading is False
+        and app._arena_roster_error is False
+        and app._arena_owned_ids == {1},
+        str(
+            (
+                app._arena_roster_known,
+                app._arena_roster_loading,
+                app._arena_roster_error,
+                app._arena_owned_ids,
+            )
+        ),
+    )
+
+
 def test_chained_ui_callbacks_stop_after_shutdown() -> None:
     app = AntiFateApp.__new__(AntiFateApp)
     app._ui_callbacks_enabled = False
@@ -184,6 +223,7 @@ test_reload_coalesces_in_flight_fetches()
 test_stop_cancels_and_joins_roster_fetch()
 test_initial_roster_reload_is_deferred()
 test_failed_roster_post_retries_on_connection()
+test_watcher_roster_update_clears_stale_ui_error()
 test_chained_ui_callbacks_stop_after_shutdown()
 
 print()

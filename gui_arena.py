@@ -458,6 +458,18 @@ class ArenaUiMixin:
                 except Exception as error:
                     logger.debug("Arena roster reload callback skipped: %s", error)
 
+    def _on_arena_roster_update(self, owned: List[dict]) -> None:
+        """Apply a roster that the Arena watcher already fetched successfully."""
+        self._arena_fetch_gen += 1
+        self._arena_roster_loading = False
+        self._arena_roster_error = False
+        self._apply_owned_champions(
+            owned,
+            self._arena_fetch_gen,
+            True,
+            True,
+        )
+
     @staticmethod
     def _normalize_arena_champion_names(value: object) -> Dict[int, str]:
         """Return cached champion names from config."""
