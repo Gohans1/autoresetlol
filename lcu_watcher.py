@@ -1540,6 +1540,20 @@ class LcuWatcher(threading.Thread):
             if self._action_is_in_progress(action)
         ]
         if not mine:
+            if self._has_my_completed_post_ban_pick(session):
+                def mark_completed_pick() -> None:
+                    self._arena_state.pick_picked_id = 0
+                    self._arena_state.pick_pending_action = None
+                    self._arena_state.pick_handled = True
+                    self._arena_state.pick_empty_since = 0.0
+
+                self._automation_state_event(
+                    generation,
+                    "Pick: user đã khóa tướng — không ghi đè",
+                    "gray",
+                    mark_completed_pick,
+                )
+                return False
             # Action biến mất: chờ đến khi client tạo lại, không tự ý làm gì.
             if self._pick_holders(session, self._arena_state.pick_picked_id):
                 self._pick_lost(session, generation)

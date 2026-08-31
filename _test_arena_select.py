@@ -1153,6 +1153,50 @@ check(
     str((fake_lcu.patches, w._arena_state)),
 )
 
+# ============ T32d: Pick đã hoàn tất → không coi là hover trống ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 0, 0, 0]
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [PICK_ACTION]],
+    bans_my=[3],
+    bans_their=[84],
+)
+w._tick()
+fake_lcu.session = make_session(
+    actions=[
+        [action(10, "ban", champion_id=3)],
+        [action(20, "pick", champion_id=1, completed=True, in_progress=False)],
+    ],
+    bans_my=[3],
+    bans_their=[84],
+)
+w._arena_state.pick_empty_since = (
+    time.monotonic() - lcu_watcher._PICK_EMPTY_GRACE_SECONDS - 0.1
+)
+w._tick()
+check(
+    "T32d: Pick đã hoàn tất → không báo lựa chọn chưa xác định",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 0
+    and not any(
+        text == "Pick: không xác định được lựa chọn — không tự chọn"
+        for text, _color in ARENA_EVENTS
+    ),
+    str((fake_lcu.patches, w._arena_state, ARENA_EVENTS)),
+)
+w._tick()
+check(
+    "T32e: Pick đã hoàn tất → tick sau vẫn đứng yên",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 0,
+    str((fake_lcu.patches, w._arena_state)),
+)
+
 # ============ T33: automation chết giữa tick → không phát event hover-cleared ============
 reset_state()
 w = make_watcher()
