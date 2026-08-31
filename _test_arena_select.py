@@ -839,6 +839,50 @@ before = list(fake_lcu.patches)
 w._tick()
 check("T28c: không PATCH thêm", fake_lcu.patches == before, str(fake_lcu.patches))
 
+# ============ T28d: user đổi qua ô trống tạm thời → không chọn lại ============
+reset_state()
+w = make_watcher()
+fake_lcu.phase = "ChampSelect"
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [PICK_ACTION]],
+    bans_my=[3],
+    bans_their=[84],
+)
+fake_config["auto_pick_enabled"] = True
+fake_config["arena_pick_chain"] = [1, 2, 0, 0]
+w._tick()
+check("T28d: bot chọn Hwei trước khi user đổi", fake_lcu.patches == [(20, 1)])
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [action(20, "pick")]],
+    bans_my=[3],
+    bans_their=[84],
+)
+w._tick()
+w._tick()
+check(
+    "T28e: ô trống qua hai lần đọc không chọn lại Hwei",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 1,
+    str((fake_lcu.patches, w._arena_state)),
+)
+fake_lcu.session = make_session(
+    actions=[[BAN_ACTION], [action(20, "pick", champion_id=4)]],
+    bans_my=[3],
+    bans_their=[84],
+)
+w._tick()
+check(
+    "T28f: tướng mới xuất hiện thì bot dừng",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 0
+    and any(
+        text.startswith("Bạn đã tự chọn: Garen") for text, _color in ARENA_EVENTS
+    ),
+    str((fake_lcu.patches, w._arena_state, ARENA_EVENTS)),
+)
+
 # ============ T29: teammate pick sẵn từ đầu → bot né ngay, chọn dự bị ============
 reset_state()
 w = make_watcher()
@@ -1063,20 +1107,18 @@ check(
     str(fake_lcu.patches),
 )
 
-# ============ T32: hover bị client xóa (cid=0) → chọn lại, không dừng ============
+# ============ T32: hover bị client xóa (cid=0) → chờ, rồi dừng an toàn ============
 reset_state()
 w = make_watcher()
 fake_lcu.phase = "ChampSelect"
 fake_config["auto_pick_enabled"] = True
 fake_config["arena_pick_chain"] = [1, 0, 0, 0]
 fake_lcu.session = make_session(
-    actions=[[action(10, "ban", champion_id=3)], [action(20, "pick", champion_id=1)]],
+    actions=[[action(10, "ban", champion_id=3)], [PICK_ACTION]],
     bans_my=[3],
     bans_their=[84],
 )
 w._tick()
-w._arena_state.pick_picked_id = 1
-w._arena_state.pick_handled = True
 # Client xóa hover: action còn nhưng championId=0, không ai giữ tướng 1
 fake_lcu.session = make_session(
     actions=[[action(10, "ban", champion_id=3)], [action(20, "pick")]],
@@ -1085,15 +1127,30 @@ fake_lcu.session = make_session(
 )
 w._tick()
 check(
-    "T32a: hover bị xóa là unknown → không kết luận 'tự chọn' và không dừng",
-    w._arena_state.pick_handled is False,
+    "T32a: hover bị xóa là unknown → giữ tướng cũ và chờ",
+    w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 1
+    and fake_lcu.patches == [(20, 1)],
     str(w._arena_state),
 )
 w._tick()
 check(
-    "T32b: tick sau bot chọn lại tướng đầu chuỗi",
-    fake_lcu.patches == [(20, 1)],
+    "T32b: ô trống tiếp tục không gửi lệnh chọn lại",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 1,
     str(fake_lcu.patches),
+)
+w._arena_state.pick_empty_since = (
+    time.monotonic() - lcu_watcher._PICK_EMPTY_GRACE_SECONDS - 0.1
+)
+w._tick()
+check(
+    "T32c: ô trống kéo dài → dừng để user tự chọn",
+    fake_lcu.patches == [(20, 1)]
+    and w._arena_state.pick_handled is True
+    and w._arena_state.pick_picked_id == 0,
+    str((fake_lcu.patches, w._arena_state)),
 )
 
 # ============ T33: automation chết giữa tick → không phát event hover-cleared ============

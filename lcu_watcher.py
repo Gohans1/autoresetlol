@@ -38,6 +38,7 @@ _BANS_REVEAL_TIMEOUT = 40
 # trusting the PATCH response by itself.
 _ACTION_VERIFY_TIMEOUT = 2.0
 _ACTION_VERIFY_INTERVAL = 0.1
+_PICK_EMPTY_GRACE_SECONDS = 3.0
 
 _STATUS_ALERT = (
     "⚠️ PICK bị dừng: Tướng chính và toàn bộ tướng dự bị đã bị ban — "
@@ -63,6 +64,7 @@ class ArenaSessionState:
     pick_picked_id: int = 0
     pick_attempted_ids: set[int] = field(default_factory=set)
     pick_wait_logged: bool = False
+    pick_empty_since: float = 0.0
 
     def reset(self) -> None:
         self.in_champ_select = False
@@ -77,6 +79,7 @@ class ArenaSessionState:
         self.pick_picked_id = 0
         self.pick_attempted_ids.clear()
         self.pick_wait_logged = False
+        self.pick_empty_since = 0.0
 
 
 class LcuWatcher(threading.Thread):
@@ -259,6 +262,7 @@ class LcuWatcher(threading.Thread):
                 self._arena_state.pick_picked_id = target
                 self._arena_state.pick_pending_action = None
                 self._arena_state.pick_wait_logged = False
+                self._arena_state.pick_empty_since = 0.0
                 self._arena_state.pick_handled = True
                 self._arena_state.pick_fail_count = 0
                 text = f"Đã chọn: {name}"
@@ -1481,6 +1485,7 @@ class LcuWatcher(threading.Thread):
             self._arena_state.pick_picked_id = 0
             self._arena_state.pick_pending_action = None
             self._arena_state.pick_handled = False
+            self._arena_state.pick_empty_since = 0.0
             if lost_id > 0:
                 self._arena_state.pick_attempted_ids.add(lost_id)
             self._arena_state.pick_wait_logged = True
@@ -1488,6 +1493,37 @@ class LcuWatcher(threading.Thread):
                 f"{self._champ_name(lost_id)} bị lấy → chuyển tướng khác",
                 "orange",
                 force=True,
+            )
+
+    def _pick_empty_transition(self, generation: int) -> None:
+        """Wait for the client to finish a transient empty Pick update."""
+        now = time.monotonic()
+        empty_since = self._arena_state.pick_empty_since
+        if empty_since <= 0:
+            self._automation_state_event(
+                generation,
+                "Pick: hover bị xóa — đang chờ client cập nhật",
+                "orange",
+                lambda: setattr(self._arena_state, "pick_empty_since", now),
+            )
+            return
+        if now - empty_since < _PICK_EMPTY_GRACE_SECONDS:
+            return
+
+        def stop_for_unknown_pick() -> None:
+            self._arena_state.pick_empty_since = 0.0
+            self._arena_state.pick_picked_id = 0
+            self._arena_state.pick_handled = True
+
+        if self._automation_state_event(
+            generation,
+            "Pick: không xác định được lựa chọn — không tự chọn",
+            "red",
+            stop_for_unknown_pick,
+            force=True,
+        ):
+            self._alert(
+                "⚠️ Không xác định được lựa chọn sau khi ô chọn bị xóa — hãy tự chọn."
             )
 
     def _pick_watch(
@@ -1508,31 +1544,24 @@ class LcuWatcher(threading.Thread):
             if self._pick_holders(session, self._arena_state.pick_picked_id):
                 self._pick_lost(session, generation)
                 return True
+            self._pick_empty_transition(generation)
             return False
         current = self._action_champion_id(mine[0])
         if self._pick_holders(session, self._arena_state.pick_picked_id):
             self._pick_lost(session, generation)
             return True
         if current == self._arena_state.pick_picked_id:
+            def mark_stable() -> None:
+                self._arena_state.pick_wait_logged = False
+                self._arena_state.pick_empty_since = 0.0
+
             self._automation_state_update(
                 generation,
-                lambda: setattr(self._arena_state, "pick_wait_logged", False),
+                mark_stable,
             )
             return False  # vẫn đang giữ đúng tướng — ổn
         if current == 0:
-            # Hover bị client xóa (championId=0) mà KHÔNG AI giữ tướng cũ:
-            # trạng thái CHƯA BIẾT, không kết luận "bạn đã tự chọn".
-            def hover_cleared() -> None:
-                self._arena_state.pick_picked_id = 0
-                self._arena_state.pick_handled = False
-                self._arena_state.pick_wait_logged = True
-
-            self._automation_state_event(
-                generation,
-                "Pick: hover bị xóa — bot chọn lại",
-                "orange",
-                hover_cleared,
-            )
+            self._pick_empty_transition(generation)
             return False
         # Tướng cũ không còn ai giữ và action của mình đã đổi
         # → không phải team lấy — là BẠN TỰ đổi. Tôn trọng, dừng hẳn.
@@ -1540,6 +1569,7 @@ class LcuWatcher(threading.Thread):
         def mark_user_changed() -> None:
             self._arena_state.pick_picked_id = 0
             self._arena_state.pick_handled = True
+            self._arena_state.pick_empty_since = 0.0
 
         self._automation_state_event(
             generation,
